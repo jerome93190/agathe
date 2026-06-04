@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.3.0"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.3.1"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -1027,7 +1027,8 @@
   // puis relayées via un stockage JSON sans clé. La clé de déchiffrement vit
   // uniquement dans le CODE (jamais envoyée au relais) -> personne d'autre ne lit.
   const sync = (function () {
-    const RELAY = "https://jsonblob.com/api/jsonBlob"; // relais JSON public, sans clé, CORS
+    const RELAY = "https://kvdb.io"; // stockage clé-valeur sans clé ; requêtes simples (sans préflight CORS)
+    const RKEY = "notes";
     let cfg = { blobId: "", keyB64: "", lastSyncedAt: 0, connected: false };
     let cryptoKey = null;
     let pushTimer = null;
@@ -1065,21 +1066,25 @@
 
     /* ---- relais (stockage JSON sans clé) ---- */
     async function relayCreate(env) {
-      const res = await fetch(RELAY, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(env) });
+      // Crée un "bucket" anonyme (POST simple, sans en-tête → pas de préflight CORS)
+      const res = await fetch(RELAY, { method: "POST" });
       if (!res.ok) throw new Error("Relais indisponible (" + res.status + ")");
-      let id = (res.headers.get("Location") || "").split("/").pop();
-      if (!id) { try { const j = await res.clone().json(); id = j.id || (j.uri || "").split("/").pop(); } catch (e) {} }
+      const id = (await res.text()).trim();
       if (!id) throw new Error("Activation impossible (relais)");
+      await relayWrite(id, env);
       return id;
     }
     async function relayRead(id) {
-      const res = await fetch(RELAY + "/" + id, { headers: { Accept: "application/json" } });
+      const res = await fetch(RELAY + "/" + id + "/" + RKEY); // GET simple
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Lecture impossible (" + res.status + ")");
-      return res.json();
+      const txt = await res.text();
+      if (!txt) return null;
+      try { return JSON.parse(txt); } catch (e) { return null; }
     }
     async function relayWrite(id, env) {
-      const res = await fetch(RELAY + "/" + id, { method: "PUT", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(env) });
+      // POST avec un corps texte simple → requête "simple" → pas de préflight CORS
+      const res = await fetch(RELAY + "/" + id + "/" + RKEY, { method: "POST", body: JSON.stringify(env) });
       if (!res.ok) throw new Error("Envoi impossible (" + res.status + ")");
     }
 

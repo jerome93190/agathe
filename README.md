@@ -141,6 +141,9 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.3.1**
+  - Correctif du relais de synchro : requêtes « simples » (sans préflight CORS)
+    via `kvdb.io`, pour éviter les erreurs réseau côté navigateur.
 - **v1.3.0**
   - **Synchro entre appareils par « Code de synchro »**, **sans jeton ni compte** :
     un code à activer sur un appareil et à coller sur les autres. Synchro
