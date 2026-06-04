@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.4.0"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.4.1"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -1049,6 +1049,54 @@
     reader.readAsText(file);
   }
 
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Import direct par lien : #tasks=<base64url d'un tableau [{t:"texte", d:"2026-04-25T11:00"?}]>
+  // Crée (sans rien écraser) un dossier « Tâches » + une note par élément, avec
+  // l'échéance quand elle est fournie. Idempotent (ids stables -> pas de doublon).
+  function importTasksFromHash() {
+    try {
+      const m = (location.hash || "").match(/[#&]tasks=([^&]+)/);
+      if (!m) return;
+      let b64 = decodeURIComponent(m[1]).replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const items = JSON.parse(decodeURIComponent(escape(atob(b64))));
+      if (!Array.isArray(items) || !items.length) return;
+
+      const folderId = "f_taches";
+      const folders = [{ id: folderId, name: "Tâches", createdAt: Date.now() }];
+      const base = Date.now();
+      const notes = items.map(function (it, i) {
+        const note = {
+          id: "n_imp_" + i,
+          folderId: folderId,
+          body: "<h1>" + escapeHtml(it && it.t) + "</h1>",
+          pinned: false,
+          createdAt: base - i * 1000,
+          updatedAt: base - i * 1000,
+        };
+        if (it && it.d) {
+          const ts = new Date(it.d).getTime(); // chaîne locale -> horodatage local de l'appareil
+          if (!isNaN(ts)) note.dueAt = ts;
+        }
+        return note;
+      });
+
+      const before = {};
+      state.notes.forEach(function (n) { before[n.id] = 1; });
+      state = mergeStates(state, { folders: folders, notes: notes });
+      metaCache.clear();
+      persist(); // enregistre + déclenche la synchro cloud si active
+      const added = state.notes.filter(function (n) { return !before[n.id]; }).length;
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      renderFolders();
+      renderAllScreens();
+      toast(added > 0 ? added + (added > 1 ? " tâches ajoutées" : " tâche ajoutée") : "Tâches déjà présentes");
+    } catch (e) {}
+  }
+
   async function shareNote(id) {
     const n = getNote(id);
     if (!n) return;
@@ -1144,7 +1192,21 @@
       const res = await api("/user");
       if (res.status === 401) throw new Error("Code/jeton invalide ou expiré");
       if (!res.ok) throw new Error("GitHub a répondu " + res.status);
-      return res.json();
+      const me = await res.json();
+      // Liste des permissions (scopes) du jeton classic, si exposée par GitHub
+      me._scopes = res.headers.get("X-OAuth-Scopes");
+      return me;
+    }
+    function ensureGistScope(me) {
+      // Jeton fine-grained : ne gère pas les Gists
+      if (/^github_pat_/.test(cfg.token))
+        throw new Error("Ton jeton est de type « fine-grained ». Crée plutôt un jeton « classic » (commence par ghp_) avec la case « gist ».");
+      // Vérifie la présence du scope « gist » quand GitHub le communique
+      if (me && me._scopes != null) {
+        const scopes = me._scopes.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+        if (scopes.indexOf("gist") === -1)
+          throw new Error("Il manque la permission « gist ». Permissions de ton jeton : " + (scopes.join(", ") || "aucune") + ". Modifie le jeton sur GitHub, coche « gist », enregistre, puis recolle-le.");
+      }
     }
     async function createGist() {
       const res = await api("/gists", { method: "POST", body: { description: "Sauvegarde de mes notes (Notes app)", public: false, files: { "notes.json": { content: JSON.stringify(exportableState(), null, 2) } } } });
@@ -1213,6 +1275,7 @@
       setStatus("sync", "Activation…");
       try {
         const me = await getUser(); cfg.owner = me.login;
+        ensureGistScope(me); // message clair si le scope « gist » manque / jeton fine-grained
         await createGist(); // crée un gist secret contenant les notes actuelles
         cfg.connected = true; saveConfig();
         if (el("#sync-token")) el("#sync-token").value = "";
@@ -1520,6 +1583,7 @@
     bindEvents();
     registerSW();
     sync.start(); // démarre la synchro GitHub si déjà configurée
+    importTasksFromHash(); // import direct via un lien #tasks=…
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

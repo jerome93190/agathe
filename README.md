@@ -145,6 +145,11 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.4.1**
+  - **Import direct par lien** (`#tasks=…`) : ajoute des tâches en 1 touche (crée un
+    dossier « Tâches » + une note par élément, avec échéance), sans fichier ni écrasement.
+  - Synchro GitHub : message d'erreur **précis** si le jeton n'a pas la permission
+    « gist » (affiche les permissions réelles) ou s'il est de type « fine-grained ».
 - **v1.4.0**
   - **Date et heure d'échéance** par note (optionnelle) : bouton « Ajouter une date
     et heure » en haut de la note (sélecteur natif), affichage dans la liste, et
