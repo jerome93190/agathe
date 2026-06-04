@@ -145,6 +145,11 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.4.2**
+  - **Synchro plus réactive** : lecture **sans cache** (`no-store`) pour ne plus lire
+    une version périmée, **rafraîchissement automatique** toutes les ~25 s tant que
+    l'app est ouverte, et au retour sur l'app — les changements d'un autre appareil
+    apparaissent tout seuls (re-render uniquement s'il y a un vrai changement).
 - **v1.4.1**
   - **Import direct par lien** (`#tasks=…`) : ajoute des tâches en 1 touche (crée un
     dossier « Tâches » + une note par élément, avec échéance), sans fichier ni écrasement.

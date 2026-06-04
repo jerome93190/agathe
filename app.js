@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.4.1"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.4.2"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -1184,7 +1184,13 @@
       opts = opts || {};
       return fetch("https://api.github.com" + path, {
         method: opts.method || "GET",
-        headers: { Authorization: "Bearer " + cfg.token, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+        cache: "no-store", // évite de relire une version périmée (cache navigateur)
+        headers: {
+          Authorization: "Bearer " + cfg.token,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "If-None-Match": "", // force une réponse fraîche (pas de 304 conditionnel)
+        },
         body: opts.body ? JSON.stringify(opts.body) : undefined,
       });
     }
@@ -1228,11 +1234,21 @@
     function putRemote(contentStr) {
       return api("/gists/" + cfg.gistId, { method: "PATCH", body: { files: { "notes.json": { content: contentStr } } } });
     }
+    function stateSig(s) {
+      return (
+        (s.notes || []).map(function (x) { return x.id + ":" + (x.updatedAt || 0); }).sort().join("|") +
+        "#" + (s.folders || []).map(function (x) { return x.id; }).sort().join("|")
+      );
+    }
+    // Fusionne le distant ; renvoie true si quelque chose a changé.
     function applyRemote(remoteJson) {
-      if (!remoteJson) return;
-      state = mergeStates(state, remoteJson);
+      if (!remoteJson) return false;
+      const merged = mergeStates(state, remoteJson);
+      if (stateSig(merged) === stateSig(state)) return false; // aucun changement
+      state = merged;
       persist(true);
       renderAllScreens();
+      return true;
     }
 
     /* ---- code de synchro = jeton|propriétaire|dépôt ---- */
@@ -1243,11 +1259,15 @@
       return { token: p[0], gistId: p[1] };
     }
 
-    async function pull() {
+    async function pull(silent) {
       if (!isConnected()) return;
-      setBadge("sync");
-      try { const r = await getRemote(); if (r) applyRemote(r); cfg.lastSyncedAt = Date.now(); saveConfig(); setBadge("ok"); }
-      catch (e) { setBadge("error", e.message); }
+      if (!silent) setBadge("sync");
+      try {
+        const r = await getRemote();
+        const changed = r ? applyRemote(r) : false;
+        cfg.lastSyncedAt = Date.now(); saveConfig();
+        if (!silent || changed) setBadge("ok");
+      } catch (e) { setBadge("error", e.message); }
     }
 
     async function push() {
@@ -1360,7 +1380,16 @@
       else toast("Copie non disponible");
     }
 
-    function start() { loadConfig(); updateUI(); if (isConnected()) pull(); }
+    function start() {
+      loadConfig();
+      updateUI();
+      if (isConnected()) pull();
+      // Rafraîchissement périodique : récupère les changements des autres appareils
+      // (uniquement si l'app est au premier plan et qu'on n'édite pas une note).
+      setInterval(function () {
+        if (isConnected() && document.visibilityState === "visible" && !busy && document.activeElement !== editor) pull(true);
+      }, 25000);
+    }
 
     return { isConnected, scheduleSyncPush, push, pull, syncNow, activate, join, disconnect, showMyCode, copyCode, updateUI, start };
   })();
@@ -1533,7 +1562,7 @@
     window.addEventListener("pagehide", saveCurrentNote);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") saveCurrentNote();
-      else if (document.visibilityState === "visible" && sync.isConnected() && document.activeElement !== editor) sync.pull();
+      else if (document.visibilityState === "visible" && sync.isConnected() && document.activeElement !== editor) sync.pull(true);
     });
   }
 
