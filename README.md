@@ -26,6 +26,8 @@ et fonctionne **hors-ligne**.
   listes à puces / numérotées et **listes à cocher** interactives.
 - **Notes épinglées**, **recherche** instantanée (insensible aux accents), et
   **balayage** d'une note vers la gauche pour l'épingler ou la supprimer.
+- **Date et heure d'échéance** optionnelle par note (affichée dans la liste, en
+  rouge si dépassée).
 - **Sauvegarde automatique** : tout est enregistré en local (aucun compte requis).
 - **Export / Import** d'une sauvegarde `.json` (votre vraie sauvegarde de secours).
 - **Mode clair / sombre** : automatique (suit le système) ou forcé.
@@ -143,6 +145,10 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.4.0**
+  - **Date et heure d'échéance** par note (optionnelle) : bouton « Ajouter une date
+    et heure » en haut de la note (sélecteur natif), affichage dans la liste, et
+    **mise en évidence en rouge** si l'échéance est dépassée. Retrait en un geste.
 - **v1.3.3**
   - Synchro GitHub via **Gist** (au lieu d'un dépôt) : ne demande qu'une seule
     permission **`gist`** sur le jeton (plus simple, pas de création de dépôt).

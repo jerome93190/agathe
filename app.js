@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.3.3"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.4.0"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -47,6 +47,8 @@
     cloud: S('<path d="M7 18.5a4.2 4.2 0 0 1-.2-8.4 5.2 5.2 0 0 1 10-1.2 3.7 3.7 0 0 1 .7 7.3"/><path d="M7 18.5h10.2"/>'),
     refresh: S('<path d="M20.5 12a8.5 8.5 0 1 1-2.4-5.9"/><polyline points="20.5 4 20.5 9.5 15 9.5"/>', { sw: 2 }),
     alert: S('<path d="M12 3.5l9 16H3z"/><line x1="12" y1="9.5" x2="12" y2="14"/><line x1="12" y1="17" x2="12" y2="17.01"/>'),
+    calendar: S('<rect x="3" y="4.5" width="18" height="16" rx="2.5"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2.8" x2="8" y2="6"/><line x1="16" y1="2.8" x2="16" y2="6"/>'),
+    clock: S('<circle cx="12" cy="12" r="9"/><polyline points="12 7.5 12 12 15.5 13.8"/>'),
   };
 
   function svgFor(name) {
@@ -234,6 +236,40 @@
       " à " +
       d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
     );
+  }
+
+  /* --------- Date d'échéance (optionnelle) --------- */
+  function isOverdue(ts) {
+    return typeof ts === "number" && ts < Date.now();
+  }
+  function timeStr(d) {
+    return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+  // Forme longue, pour l'éditeur : « mardi 25 avril 2026 à 11:00 »
+  function dueLong(ts) {
+    const d = new Date(ts);
+    return (
+      d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) +
+      " à " + timeStr(d)
+    );
+  }
+  // Forme courte, pour la liste : « Aujourd'hui 11:00 », « 25 avr. 11:00 »…
+  function dueShort(ts) {
+    const now = new Date();
+    const d = new Date(ts);
+    const dayDiff = Math.round((startOfDay(d) - startOfDay(now)) / 86400000);
+    if (dayDiff === 0) return "Aujourd'hui " + timeStr(d);
+    if (dayDiff === 1) return "Demain " + timeStr(d);
+    if (dayDiff === -1) return "Hier " + timeStr(d);
+    if (d.getFullYear() === now.getFullYear())
+      return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " " + timeStr(d);
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" }) + " " + timeStr(d);
+  }
+  // Valeur pour <input type="datetime-local"> (heure locale)
+  function toLocalInput(ts) {
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
   }
 
   // Nettoyage léger du HTML chargé dans l'éditeur
@@ -512,11 +548,16 @@
       '<div class="note-row__title">' +
       (note.pinned ? '<span class="icon-slot pin-mark" data-icon="pin-fill"></span>' : "") +
       '<span class="nrt-text"></span></div>' +
-      '<div class="note-row__meta"><span class="note-row__date"></span><span class="note-row__preview"></span></div>' +
+      '<div class="note-row__meta">' +
+      (note.dueAt
+        ? '<span class="note-row__due' + (isOverdue(note.dueAt) ? " is-overdue" : "") + '"><span class="icon-slot" data-icon="calendar"></span><span class="nrd-text"></span></span>'
+        : '<span class="note-row__date"></span>') +
+      '<span class="note-row__preview"></span></div>' +
       "</div>";
     inner.innerHTML = html;
     inner.querySelector(".nrt-text").textContent = titleText;
-    inner.querySelector(".note-row__date").textContent = dateText;
+    if (note.dueAt) inner.querySelector(".nrd-text").textContent = dueShort(note.dueAt);
+    else inner.querySelector(".note-row__date").textContent = dateText;
     inner.querySelector(".note-row__preview").textContent = previewText;
     if (selectionMode) inner.classList.add("is-selecting");
     paintIcons(inner);
@@ -697,6 +738,7 @@
     editor.setAttribute("data-placeholder", "Commencez à écrire…");
     el("#editor-date").textContent = fullDate(note.updatedAt);
     updatePinButton(note);
+    renderDueBar(note);
   }
 
   function updatePinButton(note) {
@@ -705,6 +747,58 @@
     btn.querySelector(".icon-slot").dataset.painted = "0";
     btn.classList.toggle("is-active", !!note.pinned);
     paintIcons(btn);
+  }
+
+  /* --------- Barre « date d'échéance » de l'éditeur --------- */
+  function renderDueBar(note) {
+    const bar = el("#due-bar");
+    if (!bar) return;
+    const hasDate = note && typeof note.dueAt === "number";
+    bar.classList.toggle("has-date", hasDate);
+    bar.classList.toggle("is-overdue", hasDate && isOverdue(note.dueAt));
+    el("#due-main-text").textContent = hasDate ? dueLong(note.dueAt) : "Ajouter une date et heure";
+    el("#due-clear").hidden = !hasDate;
+  }
+
+  function openDateSheet() {
+    const note = getNote(nav.noteId);
+    if (!note) return;
+    const input = el("#due-input");
+    input.value = toLocalInput(typeof note.dueAt === "number" ? note.dueAt : Date.now());
+    el("#due-remove").hidden = typeof note.dueAt !== "number";
+    showSheet("date-sheet");
+  }
+
+  function saveDueDate() {
+    const note = getNote(nav.noteId);
+    if (!note) return;
+    const val = el("#due-input").value;
+    if (!val) {
+      toast("Choisis une date et une heure");
+      return;
+    }
+    const ts = new Date(val).getTime();
+    if (isNaN(ts)) {
+      toast("Date invalide");
+      return;
+    }
+    note.dueAt = ts;
+    note.updatedAt = Date.now();
+    persist();
+    renderDueBar(note);
+    closeSheet();
+    toast("Échéance : " + dueShort(ts));
+  }
+
+  function removeDueDate() {
+    const note = getNote(nav.noteId);
+    if (!note) return;
+    delete note.dueAt;
+    note.updatedAt = Date.now();
+    persist();
+    renderDueBar(note);
+    if (openSheet) closeSheet();
+    toast("Date retirée");
   }
 
   function scheduleSave() {
@@ -1253,6 +1347,13 @@
     });
     el("#menu-btn").addEventListener("click", () => showSheet("action-menu"));
     el("#editor-done-btn").addEventListener("click", () => editor.blur());
+
+    // Date d'échéance
+    el("#due-main").addEventListener("click", openDateSheet);
+    el("#due-clear").addEventListener("click", removeDueDate);
+    el("#due-save").addEventListener("click", saveDueDate);
+    el("#due-remove").addEventListener("click", removeDueDate);
+    el("#date-sheet").querySelector('[data-action="cancel-date"]').addEventListener("click", closeSheet);
 
     editor.addEventListener("input", scheduleSave);
     editor.addEventListener("keydown", (e) => {

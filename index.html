@@ -134,6 +134,15 @@
         </header>
 
         <div class="editor-scroll" id="editor-scroll">
+          <div class="due-bar" id="due-bar">
+            <button class="due-main" id="due-main" type="button">
+              <span class="icon-slot" data-icon="calendar"></span>
+              <span id="due-main-text">Ajouter une date et heure</span>
+            </button>
+            <button class="due-clear" id="due-clear" type="button" aria-label="Retirer la date" hidden>
+              <span class="icon-slot" data-icon="x-circle"></span>
+            </button>
+          </div>
           <div
             class="editor"
             id="editor"
@@ -208,6 +217,22 @@
         <span>Supprimer</span><span class="icon-slot" data-icon="trash"></span>
       </button>
       <button class="menu-item menu-item--cancel" data-action="cancel" type="button">Annuler</button>
+    </div>
+
+    <!-- ===================== DATE & HEURE D'ÉCHÉANCE ===================== -->
+    <div class="sheet sheet--date" id="date-sheet" hidden aria-label="Date et heure">
+      <div class="sheet-grabber"></div>
+      <h2 class="sheet-title">
+        <span class="icon-slot sheet-title-icon" data-icon="calendar"></span> Date et heure
+      </h2>
+      <p class="sheet-desc">Choisis une date et une heure d'échéance pour cette note (optionnel).</p>
+      <label class="gh-field">
+        <span>Échéance</span>
+        <input type="datetime-local" id="due-input" />
+      </label>
+      <button class="gh-btn gh-btn--primary" id="due-save" type="button">Enregistrer la date</button>
+      <button class="gh-btn gh-btn--danger" id="due-remove" type="button" hidden>Retirer la date</button>
+      <button class="menu-item menu-item--cancel" data-action="cancel-date" type="button">Annuler</button>
     </div>
 
     <!-- ===================== MENU GLOBAL (réglages) ===================== -->
