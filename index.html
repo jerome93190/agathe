@@ -236,8 +236,8 @@
       </h2>
       <p class="sheet-desc">
         Tes notes sont synchronisées automatiquement dans les <b>2 sens</b> entre tes
-        appareils, via un <b>dépôt GitHub privé</b>. Méthode fiable : un code à coller
-        une fois par appareil.
+        appareils, via un <b>Gist GitHub privé</b> (ta sauvegarde). Méthode fiable :
+        un code à coller une fois par appareil.
       </p>
 
       <div class="gh-status" id="gh-status" data-state="off">
@@ -257,7 +257,7 @@
           <summary>Comment obtenir ce code GitHub ? (1 min)</summary>
           <ol>
             <li>GitHub → <b>Settings → Developer settings → Personal access tokens → Tokens (classic)</b>.</li>
-            <li>« Generate new token (classic) », coche la case <b>repo</b>, puis génère-le.</li>
+            <li>« Generate new token (classic) », coche la case <b>gist</b>, puis génère-le.</li>
             <li>Copie le code (il commence par <code>ghp_</code>) et colle-le ci-dessus.</li>
           </ol>
         </details>
@@ -275,7 +275,7 @@
         <p class="sync-code-label">📋 Ton code de synchro — colle-le sur tes autres appareils :</p>
         <div class="sync-code" id="sync-code-value"></div>
         <button class="gh-btn gh-btn--primary" id="sync-copy" type="button">Copier le code</button>
-        <p class="gh-help-note">🔒 Garde ce code secret : il donne accès à tes notes (dépôt privé). Ne le partage qu'avec tes propres appareils.</p>
+        <p class="gh-help-note">🔒 Garde ce code secret : il donne accès à tes notes (gist privé). Ne le partage qu'avec tes propres appareils.</p>
       </div>
 
       <!-- Actions une fois synchronisé -->

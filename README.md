@@ -85,10 +85,10 @@ l'écran d'accueil.
 ### ☁️ Activer la synchro entre appareils (via GitHub)
 
 1. Crée un **code GitHub** (jeton) : GitHub → *Settings → Developer settings →
-   Personal access tokens → Tokens (classic)* → coche **repo** → génère-le (`ghp_…`).
+   Personal access tokens → Tokens (classic)* → coche **gist** → génère-le (`ghp_…`).
 2. Sur le **1er appareil** : **⚙︎ → Synchro entre appareils**, colle le code GitHub
-   puis **Activer la synchro**. L'app crée un **dépôt privé** et affiche un
-   **code de synchro** (à copier).
+   puis **Activer la synchro**. L'app crée un **Gist privé** (ta sauvegarde) et
+   affiche un **code de synchro** (à copier).
 3. Sur les **autres appareils** : **⚙︎ → Synchro entre appareils**, colle le
    **code de synchro** dans *« J'ai déjà un code »* puis **Rejoindre** (pas besoin de
    recréer un jeton).
@@ -96,8 +96,8 @@ l'écran d'accueil.
    **« ☁ Synchronisé »** confirme l'état.
 
 > 🔒 **Sécurité** : le code GitHub reste **uniquement sur tes appareils** (jamais
-> dans le dépôt public de l'app). Le dépôt de sauvegarde est **privé** : comme tes
-> notes peuvent contenir des mots de passe, ne le rends jamais public. La fusion est
+> dans le dépôt public de l'app). Le Gist de sauvegarde est **secret/privé** : comme
+> tes notes peuvent contenir des mots de passe, ne le rends jamais public. La fusion est
 > « intelligente » (la note la plus récente gagne) pour ne rien perdre entre
 > appareils. La copie locale + l'export `.json` restent des sauvegardes garanties.
 >
@@ -143,6 +143,9 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.3.3**
+  - Synchro GitHub via **Gist** (au lieu d'un dépôt) : ne demande qu'une seule
+    permission **`gist`** sur le jeton (plus simple, pas de création de dépôt).
 - **v1.3.2**
   - Synchro entre appareils repassée sur **GitHub** (méthode fiable) : les relais
     « sans compte » se sont révélés bloqués/indisponibles côté navigateur. On garde
