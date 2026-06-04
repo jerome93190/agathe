@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  />
+  <title>Notes</title>
+  <meta name="description" content="Une application de notes moderne, interactive et compatible iPhone, inspirée de l'app Notes d'iOS." />
+
+  <!-- Couleur de la barre d'état (clair / sombre) -->
+  <meta name="theme-color" content="#f7f7f2" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+
+  <!-- Mode application plein écran sur iPhone -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Notes" />
+  <meta name="format-detection" content="telephone=no" />
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="app" class="app">
+    <div class="screens" id="screens">
+
+      <!-- ===================== ÉCRAN 1 : DOSSIERS ===================== -->
+      <section class="screen screen-folders" data-screen="folders" aria-label="Dossiers">
+        <header class="nav">
+          <div class="nav-bar">
+            <button class="nav-side nav-side--left nav-btn nav-icon-btn" id="settings-btn" type="button" aria-label="Réglages">
+              <span class="icon-slot" data-icon="gear"></span>
+            </button>
+            <span class="nav-title">Dossiers</span>
+            <button class="nav-side nav-side--right nav-btn" id="folders-edit-btn" type="button">Modifier</button>
+          </div>
+          <h1 class="large-title">Dossiers</h1>
+        </header>
+
+        <div class="scroll" id="folders-scroll">
+          <ul class="folder-list" id="folder-list" aria-label="Liste des dossiers"></ul>
+        </div>
+
+        <footer class="toolbar">
+          <button class="toolbar-btn toolbar-btn--text" id="new-folder-btn" type="button">
+            <span class="icon-slot" data-icon="folder-plus"></span>
+            <span>Nouveau dossier</span>
+          </button>
+        </footer>
+      </section>
+
+      <!-- ===================== ÉCRAN 2 : LISTE DES NOTES ===================== -->
+      <section class="screen screen-notes" data-screen="notes" aria-label="Notes">
+        <header class="nav">
+          <div class="nav-bar">
+            <button class="nav-side nav-side--left nav-btn nav-back" id="notes-back-btn" type="button">
+              <span class="icon-slot" data-icon="chevron-left"></span>
+              <span class="nav-back-label">Dossiers</span>
+            </button>
+            <span class="nav-title" id="notes-nav-title">Notes</span>
+            <button class="nav-side nav-side--right nav-btn" id="notes-edit-btn" type="button">Modifier</button>
+          </div>
+          <h1 class="large-title" id="notes-large-title">Notes</h1>
+          <div class="search">
+            <label class="search-field">
+              <span class="icon-slot" data-icon="search"></span>
+              <input
+                type="search"
+                id="search-input"
+                placeholder="Rechercher"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="search"
+              />
+              <button class="search-clear" id="search-clear" type="button" aria-label="Effacer la recherche" hidden>
+                <span class="icon-slot" data-icon="x-circle"></span>
+              </button>
+            </label>
+          </div>
+        </header>
+
+        <div class="scroll" id="notes-scroll">
+          <ul class="note-list" id="note-list" aria-label="Liste des notes"></ul>
+          <div class="empty-state" id="notes-empty" hidden>
+            <span class="icon-slot empty-icon" data-icon="note"></span>
+            <p class="empty-title">Aucune note</p>
+            <p class="empty-sub">Touchez le bouton crayon pour écrire votre première note.</p>
+          </div>
+        </div>
+
+        <footer class="toolbar toolbar--notes">
+          <span class="toolbar-spacer"></span>
+          <span class="toolbar-count" id="notes-count">0 note</span>
+          <button class="toolbar-btn toolbar-btn--compose" id="compose-btn" type="button" aria-label="Nouvelle note">
+            <span class="icon-slot" data-icon="compose"></span>
+          </button>
+        </footer>
+      </section>
+
+      <!-- ===================== ÉCRAN 3 : ÉDITEUR ===================== -->
+      <section class="screen screen-editor" data-screen="editor" aria-label="Éditeur de note">
+        <header class="nav nav--editor">
+          <div class="nav-bar">
+            <button class="nav-side nav-side--left nav-btn nav-back" id="editor-back-btn" type="button">
+              <span class="icon-slot" data-icon="chevron-left"></span>
+              <span class="nav-back-label" id="editor-back-label">Notes</span>
+            </button>
+            <span class="nav-title nav-title--date" id="editor-date"></span>
+            <div class="nav-side nav-side--right nav-actions">
+              <button class="nav-btn nav-icon-btn" id="pin-btn" type="button" aria-label="Épingler">
+                <span class="icon-slot" data-icon="pin"></span>
+              </button>
+              <button class="nav-btn nav-icon-btn" id="menu-btn" type="button" aria-label="Plus d'options">
+                <span class="icon-slot" data-icon="dots"></span>
+              </button>
+              <button class="nav-btn nav-done" id="editor-done-btn" type="button" hidden>OK</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="editor-scroll" id="editor-scroll">
+          <div
+            class="editor"
+            id="editor"
+            contenteditable="true"
+            role="textbox"
+            aria-multiline="true"
+            aria-label="Contenu de la note"
+            spellcheck="true"
+          ></div>
+        </div>
+
+        <!-- Barre de mise en forme -->
+        <div class="format-bar" id="format-bar" hidden>
+          <button class="fmt-btn" data-cmd="format-sheet" type="button" aria-label="Format du texte">
+            <span class="icon-slot" data-icon="aa"></span>
+          </button>
+          <button class="fmt-btn" data-cmd="checklist" type="button" aria-label="Liste à cocher">
+            <span class="icon-slot" data-icon="checklist"></span>
+          </button>
+          <button class="fmt-btn" data-cmd="bulleted" type="button" aria-label="Liste à puces">
+            <span class="icon-slot" data-icon="list-bullet"></span>
+          </button>
+          <button class="fmt-btn" data-cmd="bold" type="button" aria-label="Gras"><b>B</b></button>
+          <button class="fmt-btn" data-cmd="italic" type="button" aria-label="Italique"><i>I</i></button>
+          <span class="fmt-spacer"></span>
+          <button class="fmt-btn fmt-btn--done" data-cmd="keyboard-done" type="button" aria-label="Masquer le clavier">
+            <span class="icon-slot" data-icon="keyboard-down"></span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- ===================== FEUILLE DE FORMAT ===================== -->
+    <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+
+    <div class="sheet sheet--format" id="format-sheet" hidden aria-label="Mise en forme">
+      <div class="sheet-grabber"></div>
+      <div class="format-grid">
+        <button class="format-style" data-style="title" type="button"><span class="fs-name">Titre</span></button>
+        <button class="format-style" data-style="heading" type="button"><span class="fs-name">Sous-titre</span></button>
+        <button class="format-style" data-style="body" type="button"><span class="fs-name">Corps</span></button>
+      </div>
+      <div class="format-row">
+        <button class="format-toggle" data-cmd="bold" type="button" aria-label="Gras"><b>B</b></button>
+        <button class="format-toggle" data-cmd="italic" type="button" aria-label="Italique"><i>I</i></button>
+        <button class="format-toggle" data-cmd="underline" type="button" aria-label="Souligné"><u>U</u></button>
+        <button class="format-toggle" data-cmd="strikeThrough" type="button" aria-label="Barré"><s>S</s></button>
+      </div>
+      <div class="format-row">
+        <button class="format-toggle format-toggle--wide" data-cmd="checklist" type="button">
+          <span class="icon-slot" data-icon="checklist"></span><span>Liste à cocher</span>
+        </button>
+        <button class="format-toggle format-toggle--wide" data-cmd="bulleted" type="button">
+          <span class="icon-slot" data-icon="list-bullet"></span><span>Puces</span>
+        </button>
+        <button class="format-toggle format-toggle--wide" data-cmd="numbered" type="button">
+          <span class="icon-slot" data-icon="list-number"></span><span>Numéros</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ===================== MENU D'ACTIONS (…) ===================== -->
+    <div class="sheet sheet--menu" id="action-menu" hidden aria-label="Actions sur la note">
+      <div class="sheet-grabber"></div>
+      <button class="menu-item" data-action="share" type="button">
+        <span>Partager</span><span class="icon-slot" data-icon="share"></span>
+      </button>
+      <button class="menu-item" data-action="duplicate" type="button">
+        <span>Dupliquer</span><span class="icon-slot" data-icon="copy"></span>
+      </button>
+      <button class="menu-item menu-item--danger" data-action="delete" type="button">
+        <span>Supprimer</span><span class="icon-slot" data-icon="trash"></span>
+      </button>
+      <button class="menu-item menu-item--cancel" data-action="cancel" type="button">Annuler</button>
+    </div>
+
+    <!-- ===================== MENU GLOBAL (réglages) ===================== -->
+    <div class="sheet sheet--menu" id="settings-menu" hidden aria-label="Réglages">
+      <div class="sheet-grabber"></div>
+      <button class="menu-item" data-action="export" type="button">
+        <span>Exporter mes notes (sauvegarde)</span><span class="icon-slot" data-icon="download"></span>
+      </button>
+      <button class="menu-item" data-action="import" type="button">
+        <span>Importer une sauvegarde</span><span class="icon-slot" data-icon="upload"></span>
+      </button>
+      <button class="menu-item" data-action="theme" type="button">
+        <span id="theme-label">Apparence : Automatique</span><span class="icon-slot" data-icon="moon"></span>
+      </button>
+      <button class="menu-item menu-item--cancel" data-action="cancel" type="button">Annuler</button>
+    </div>
+
+    <!-- Champ caché pour l'import -->
+    <input type="file" id="import-file" accept="application/json,.json" hidden />
+
+    <!-- Zone de notifications (toast) -->
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
