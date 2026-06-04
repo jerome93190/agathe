@@ -72,17 +72,31 @@ l'écran d'accueil.
 
 ---
 
-## 💾 « Sauvegarde » : deux niveaux
+## 💾 Sauvegarde : 3 niveaux
 
-- **Le code** est sauvegardé/versionné sur **GitHub** (ce dépôt).
-- **Vos notes** sont enregistrées automatiquement sur l'appareil, et vous pouvez à
-  tout moment **exporter une sauvegarde** (menu ⚙︎ → *Exporter mes notes*) pour
-  obtenir un fichier `.json` à conserver ou à réimporter ailleurs.
+1. **Locale automatique** : chaque modification est enregistrée sur l'appareil,
+   avec une **copie de secours** et une **restauration automatique** en cas de souci.
+2. **Cloud GitHub (automatique)** : tes notes sont enregistrées dans un **dépôt
+   GitHub privé** et **synchronisées entre tes appareils**. Active-la dans
+   **⚙︎ → Sauvegarde GitHub** (voir ci-dessous).
+3. **Export manuel** : à tout moment, **⚙︎ → Exporter mes notes** produit un
+   fichier `.json` à conserver ou réimporter ailleurs.
 
-> 🔎 *À noter :* les notes restent **locales à votre navigateur/appareil** (rien
-> n'est envoyé sur un serveur). Si vous souhaitez une **synchronisation
-> automatique des notes vers GitHub** (via l'API GitHub), c'est une évolution
-> possible — voir plus bas.
+### ☁️ Activer la sauvegarde cloud GitHub
+
+1. Crée un **jeton d'accès** : GitHub → *Settings → Developer settings → Personal
+   access tokens → Tokens (classic)* → coche **repo** → génère-le (`ghp_…`).
+2. Dans l'app : **⚙︎ → Sauvegarde GitHub**, colle le jeton, choisis un nom de
+   dépôt (ex. `mes-notes`) puis **Connecter et synchroniser**.
+3. L'app **crée le dépôt en privé** s'il n'existe pas, y écrit `notes.json` et
+   **se synchronise automatiquement** ensuite. Le badge **« ☁ Synchronisé »**
+   confirme l'état.
+
+> 🔒 **Sécurité** : le jeton est stocké **uniquement sur ton appareil** (jamais
+> dans le code public). Le dépôt de sauvegarde est **privé** : comme tes notes
+> peuvent contenir des mots de passe, ne le rends jamais public.
+> La synchronisation fusionne intelligemment (la note la plus récente gagne),
+> ce qui évite de perdre des données entre appareils.
 
 ---
 
@@ -122,6 +136,15 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.2.0**
+  - **Sauvegarde « cloud » sur GitHub** : tes notes sont enregistrées
+    automatiquement dans un **dépôt GitHub privé** et **synchronisées entre
+    appareils** (fusion intelligente : la version la plus récente de chaque note
+    gagne, rien n'est perdu).
+  - Connexion en un écran (⚙︎ → *Sauvegarde GitHub*) : jeton + nom du dépôt
+    (créé en privé automatiquement). Le **jeton reste sur l'appareil**.
+  - Badge **« ☁ Synchronisé »** en haut, envoi auto à chaque modification,
+    récupération à l'ouverture et au retour sur l'app, gestion des conflits.
 - **v1.1.0**
   - Numéro de version affiché dans l'application (et mis à jour à chaque MAJ).
   - **Sauvegarde automatique renforcée** : copie de secours redondante en local et
@@ -136,9 +159,9 @@ jour à chaque évolution.
 
 ## 🛣️ Évolutions possibles
 
-- Synchronisation des notes vers un dépôt GitHub (via *Personal Access Token* / OAuth).
 - Verrouillage de notes (Face ID / mot de passe), pièces jointes, partage.
-- Étiquettes, tri personnalisé, corbeille avec restauration.
+- Étiquettes, tri personnalisé, corbeille avec restauration (avec tombstones pour
+  propager les suppressions entre appareils).
 
 ---
 

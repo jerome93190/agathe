@@ -7,9 +7,10 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.1.0"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.2.0"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
+  const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
   const SYSTEM_FOLDER = "f_notes";
 
   /* ----------------------------- Icônes (SVG) ---------------------------- */
@@ -43,6 +44,9 @@
     "keyboard-down": S('<rect x="3" y="3" width="18" height="9" rx="2.2"/><line x1="7" y1="6.5" x2="7" y2="6.5"/><line x1="11" y1="6.5" x2="11" y2="6.5"/><line x1="15" y1="6.5" x2="15" y2="6.5"/><line x1="8" y1="9" x2="14" y2="9"/><polyline points="8 16 12 20 16 16"/>'),
     gear: S('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.6l1 2 2.3-.4.3 2.3 2.1 1-.9 2.1.9 2.1-2.1 1-.3 2.3-2.3-.4-1 2-1-2-2.3.4-.3-2.3-2.1-1 .9-2.1-.9-2.1 2.1-1 .3-2.3 2.3.4z"/>', { sw: 1.4 }),
     check: S('<polyline points="5 12.5 10 17.5 19 6.5"/>', { sw: 2.2 }),
+    cloud: S('<path d="M7 18.5a4.2 4.2 0 0 1-.2-8.4 5.2 5.2 0 0 1 10-1.2 3.7 3.7 0 0 1 .7 7.3"/><path d="M7 18.5h10.2"/>'),
+    refresh: S('<path d="M20.5 12a8.5 8.5 0 1 1-2.4-5.9"/><polyline points="20.5 4 20.5 9.5 15 9.5"/>', { sw: 2 }),
+    alert: S('<path d="M12 3.5l9 16H3z"/><line x1="12" y1="9.5" x2="12" y2="14"/><line x1="12" y1="17" x2="12" y2="17.01"/>'),
   };
 
   function svgFor(name) {
@@ -67,7 +71,7 @@
     return (prefix || "id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  function persist() {
+  function persist(skipSync) {
     try {
       const json = JSON.stringify(state);
       localStorage.setItem(STORE_KEY, json);
@@ -77,6 +81,8 @@
     } catch (e) {
       toast("Impossible d'enregistrer (stockage plein ?)");
     }
+    // Synchronisation cloud (GitHub) automatique
+    if (!skipSync && gh.isConnected()) gh.scheduleSyncPush();
   }
 
   function parseState(raw) {
@@ -987,6 +993,277 @@
     toast("Apparence : " + THEME_LABELS[state.theme]);
   }
 
+  /* -------------------- Fusion d'états (multi-appareils) ----------------- */
+  // Réunit notes (la plus récente par id gagne) et dossiers (union par id).
+  // Principe « ne jamais perdre » : on conserve la version la plus à jour de chaque note.
+  function mergeStates(a, b) {
+    a = a || { folders: [], notes: [] };
+    b = b || { folders: [], notes: [] };
+    const folders = [];
+    const seen = {};
+    (a.folders || []).concat(b.folders || []).forEach((f) => {
+      if (!f || !f.id || seen[f.id]) return;
+      seen[f.id] = 1;
+      folders.push(f);
+    });
+    const byId = {};
+    (a.notes || []).concat(b.notes || []).forEach((n) => {
+      if (!n || !n.id) return;
+      const ex = byId[n.id];
+      if (!ex || (n.updatedAt || 0) >= (ex.updatedAt || 0)) byId[n.id] = n;
+    });
+    return { folders: folders, notes: Object.keys(byId).map((k) => byId[k]), theme: a.theme || b.theme || "auto" };
+  }
+
+  function renderAllScreens() {
+    renderFolders();
+    if (nav.depth >= 1) renderNotesScreen();
+    // on évite d'écraser une note pendant qu'elle est en cours d'édition
+    if (nav.depth === 2 && document.activeElement !== editor && getNote(nav.noteId)) renderEditor();
+  }
+
+  /* ----------------- Synchronisation GitHub (cloud) ---------------------- */
+  const gh = (function () {
+    let cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
+    let pushTimer = null;
+    let busy = false;
+    let pendingPush = false;
+
+    function loadConfig() {
+      try {
+        const raw = localStorage.getItem(SYNC_KEY);
+        if (raw) cfg = Object.assign(cfg, JSON.parse(raw));
+      } catch (e) {}
+    }
+    function saveConfig() {
+      try { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); } catch (e) {}
+    }
+    function isConnected() { return !!cfg.connected && !!cfg.token; }
+
+    // base64 compatible UTF-8 (caractères accentués, emojis…)
+    function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+    function b64decode(b64) { return decodeURIComponent(escape(atob((b64 || "").replace(/\s/g, "")))); }
+
+    async function api(path, opts) {
+      opts = opts || {};
+      return fetch("https://api.github.com" + path, {
+        method: opts.method || "GET",
+        headers: {
+          Authorization: "Bearer " + cfg.token,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+    }
+
+    async function getUser() {
+      const res = await api("/user");
+      if (res.status === 401) throw new Error("Jeton invalide ou expiré");
+      if (!res.ok) throw new Error("GitHub a répondu " + res.status);
+      return res.json();
+    }
+
+    async function ensureRepo() {
+      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo);
+      if (res.ok) {
+        const r = await res.json();
+        cfg.branch = r.default_branch || "main";
+        return;
+      }
+      if (res.status === 404) {
+        const create = await api("/user/repos", {
+          method: "POST",
+          body: { name: cfg.repo, private: true, auto_init: true, description: "Sauvegarde de mes notes" },
+        });
+        if (!create.ok) throw new Error("Création du dépôt impossible (jeton avec le scope « repo » ?)");
+        const r = await create.json();
+        cfg.branch = r.default_branch || "main";
+        await new Promise((r2) => setTimeout(r2, 900)); // laisse le dépôt s'initialiser
+        return;
+      }
+      throw new Error("Accès au dépôt impossible (" + res.status + ")");
+    }
+
+    async function getRemote() {
+      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path + "?ref=" + cfg.branch);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Lecture distante impossible (" + res.status + ")");
+      const data = await res.json();
+      let json = null;
+      try { json = JSON.parse(b64decode(data.content)); } catch (e) {}
+      return { json: json, sha: data.sha };
+    }
+
+    function putRemote(contentStr, sha) {
+      const body = { message: "Sauvegarde des notes — " + new Date().toLocaleString("fr-FR"), content: b64encode(contentStr), branch: cfg.branch };
+      if (sha) body.sha = sha;
+      return api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path, { method: "PUT", body: body });
+    }
+
+    function mergeRemoteIntoLocal(remoteJson) {
+      if (!remoteJson) return;
+      state = mergeStates(state, remoteJson);
+      persist(true); // écrit en local sans relancer une synchro
+      renderAllScreens();
+    }
+
+    async function pull() {
+      if (!isConnected()) return;
+      setBadge("sync");
+      try {
+        const remote = await getRemote();
+        if (remote) { mergeRemoteIntoLocal(remote.json); cfg.sha = remote.sha; }
+        cfg.lastSyncedAt = Date.now();
+        saveConfig();
+        setBadge("ok");
+      } catch (e) { setBadge("error", e.message); }
+    }
+
+    async function push() {
+      if (!isConnected()) return;
+      if (busy) { pendingPush = true; return; }
+      busy = true; setBadge("sync");
+      try {
+        let body = JSON.stringify(state, null, 2);
+        let sha = cfg.sha;
+        let done = false;
+        for (let attempt = 0; attempt < 3 && !done; attempt++) {
+          const res = await putRemote(body, sha);
+          if (res.ok) {
+            const j = await res.json();
+            cfg.sha = j.content.sha;
+            cfg.lastSyncedAt = Date.now();
+            saveConfig();
+            done = true;
+          } else if (res.status === 409 || res.status === 422) {
+            const remote = await getRemote(); // conflit : on fusionne le distant puis on réessaie
+            if (remote) { mergeRemoteIntoLocal(remote.json); sha = remote.sha; }
+            else sha = null;
+            body = JSON.stringify(state, null, 2);
+          } else if (res.status === 401) {
+            throw new Error("Jeton invalide");
+          } else {
+            throw new Error("Envoi impossible (" + res.status + ")");
+          }
+        }
+        if (!done) throw new Error("Conflit de synchronisation persistant");
+        setBadge("ok");
+      } catch (e) { setBadge("error", e.message); }
+      finally {
+        busy = false;
+        if (pendingPush) { pendingPush = false; scheduleSyncPush(); }
+      }
+    }
+
+    function scheduleSyncPush() {
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(push, 1500);
+    }
+
+    async function connect(token, repo) {
+      token = (token || "").trim();
+      repo = (repo || "").trim().replace(/\s+/g, "-");
+      if (!token) { toast("Colle d'abord ton jeton GitHub"); return; }
+      if (!repo) { toast("Indique un nom de dépôt"); return; }
+      cfg.token = token; cfg.repo = repo; cfg.path = "notes.json"; cfg.branch = "main";
+      setStatus("sync", "Connexion…");
+      const btn = el("#gh-connect");
+      if (btn) btn.disabled = true;
+      try {
+        const me = await getUser();
+        cfg.owner = me.login;
+        await ensureRepo();
+        const remote = await getRemote();
+        if (remote) { mergeRemoteIntoLocal(remote.json); cfg.sha = remote.sha; }
+        cfg.connected = true;
+        saveConfig();
+        await push(); // envoie l'état fusionné
+        updateUI();
+        const tokenInput = el("#gh-token");
+        if (tokenInput) tokenInput.value = "";
+        toast("Sauvegarde GitHub activée ✓");
+      } catch (e) {
+        cfg.connected = false; saveConfig();
+        setStatus("error", e.message || "Échec de la connexion");
+        toast(e.message || "Échec de la connexion");
+      } finally {
+        if (btn) btn.disabled = false;
+        updateUI();
+      }
+    }
+
+    function disconnect() {
+      cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
+      saveConfig();
+      updateUI();
+      toast("Synchronisation GitHub désactivée");
+    }
+
+    async function syncNow() {
+      if (!isConnected()) return;
+      await pull();
+      await push();
+    }
+
+    /* ----- Interface : statut + badge ----- */
+    function iconFor(stateName) {
+      return stateName === "sync" ? "refresh" : stateName === "error" ? "alert" : "cloud";
+    }
+    function setStatus(stateName, text) {
+      const box = el("#gh-status");
+      if (!box) return;
+      box.dataset.state = stateName;
+      const ic = box.querySelector(".gh-status-icon");
+      ic.dataset.icon = iconFor(stateName);
+      ic.dataset.painted = "0";
+      paintIcons(box);
+      el("#gh-status-text").textContent = text;
+    }
+    function setBadge(stateName, text) {
+      const badge = el("#sync-badge");
+      if (badge) {
+        if (stateName === "off") {
+          badge.hidden = true;
+        } else {
+          badge.hidden = false;
+          badge.dataset.state = stateName;
+          const ic = badge.querySelector(".sync-badge-icon");
+          ic.dataset.icon = iconFor(stateName);
+          ic.dataset.painted = "0";
+          paintIcons(badge);
+          el("#sync-badge-text").textContent =
+            stateName === "sync" ? "Sync…" : stateName === "error" ? "Erreur" : "Synchronisé";
+        }
+      }
+      if (stateName === "ok" && isConnected()) {
+        const t = cfg.lastSyncedAt ? " · " + new Date(cfg.lastSyncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+        setStatus("ok", "Connecté à " + cfg.owner + "/" + cfg.repo + t);
+      } else if (stateName === "sync") {
+        setStatus("sync", "Synchronisation…");
+      } else if (stateName === "error") {
+        setStatus("error", text || "Erreur de synchronisation");
+      }
+    }
+    function updateUI() {
+      const connected = isConnected();
+      const form = el("#gh-form"), actions = el("#gh-actions"), label = el("#settings-github-label");
+      if (form) form.hidden = connected;
+      if (actions) actions.hidden = !connected;
+      if (label) label.textContent = connected ? "Sauvegarde GitHub : activée" : "Sauvegarde GitHub (cloud)";
+      if (connected) setBadge("ok");
+      else { setBadge("off"); setStatus("off", "Non connecté"); }
+    }
+
+    function start() {
+      loadConfig();
+      updateUI();
+      if (isConnected()) pull(); // récupère les changements des autres appareils
+    }
+
+    return { isConnected, scheduleSyncPush, push, pull, connect, disconnect, syncNow, updateUI, start };
+  })();
+
   /* ----------------------------- Écouteurs ------------------------------- */
   function bindEvents() {
     // Dossiers
@@ -1105,9 +1382,19 @@
           el("#import-file").click();
         } else if (a === "theme") {
           cycleTheme();
+        } else if (a === "github") {
+          showSheet("github-sheet");
+          gh.updateUI();
         } else closeSheet();
       });
     });
+
+    // Feuille « Sauvegarde GitHub »
+    el("#gh-connect").addEventListener("click", () => gh.connect(el("#gh-token").value, el("#gh-repo").value));
+    el("#gh-sync-now").addEventListener("click", () => gh.syncNow());
+    el("#gh-disconnect").addEventListener("click", () => gh.disconnect());
+    el("#github-sheet").querySelector('[data-action="cancel-github"]').addEventListener("click", closeSheet);
+    el("#sync-badge").addEventListener("click", () => { showSheet("github-sheet"); gh.updateUI(); });
     el("#import-file").addEventListener("change", (e) => {
       const f = e.target.files && e.target.files[0];
       if (f) importNotes(f);
@@ -1135,6 +1422,7 @@
     window.addEventListener("pagehide", saveCurrentNote);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") saveCurrentNote();
+      else if (document.visibilityState === "visible" && gh.isConnected() && document.activeElement !== editor) gh.pull();
     });
   }
 
@@ -1183,6 +1471,7 @@
     setDepth(0);
     bindEvents();
     registerSW();
+    gh.start(); // démarre la synchro GitHub si déjà configurée
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
