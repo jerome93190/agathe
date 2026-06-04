@@ -145,6 +145,10 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.4.3**
+  - **Suppressions synchronisées** : une note (ou un dossier) supprimée d'un appareil
+    ne « revient » plus depuis le cloud — mémorisation des suppressions (tombstones),
+    propagées aux autres appareils (avec règle « dernière action gagne »).
 - **v1.4.2**
   - **Synchro plus réactive** : lecture **sans cache** (`no-store`) pour ne plus lire
     une version périmée, **rafraîchissement automatique** toutes les ~25 s tant que

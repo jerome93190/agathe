@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.4.2"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.4.3"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -73,6 +73,16 @@
     return (prefix || "id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  // Suppressions mémorisées (pour que la suppression se propage et ne « revienne » pas)
+  function markNoteDeleted(id) {
+    if (!state.deleted) state.deleted = {};
+    state.deleted[id] = Date.now();
+  }
+  function markFolderDeleted(id) {
+    if (!state.deletedFolders) state.deletedFolders = {};
+    state.deletedFolders[id] = Date.now();
+  }
+
   function persist(skipSync) {
     try {
       const json = JSON.stringify(state);
@@ -107,7 +117,7 @@
       }
     } catch (e) {}
     if (parsed) {
-      state = Object.assign({ theme: "auto" }, parsed);
+      state = Object.assign({ theme: "auto", deleted: {}, deletedFolders: {} }, parsed);
       return;
     }
     seed();
@@ -117,6 +127,8 @@
     const now = Date.now();
     state = {
       theme: "auto",
+      deleted: {},
+      deletedFolders: {},
       folders: [
         { id: SYSTEM_FOLDER, name: "Notes", system: true, createdAt: now },
         { id: "f_idees", name: "Idées", createdAt: now },
@@ -397,8 +409,10 @@
     const f = getFolder(id);
     if (!f || f.system) return;
     const moved = notesInFolder(id);
-    moved.forEach((n) => (n.folderId = SYSTEM_FOLDER));
+    const now = Date.now();
+    moved.forEach((n) => { n.folderId = SYSTEM_FOLDER; n.updatedAt = now; });
     state.folders = state.folders.filter((x) => x.id !== id);
+    markFolderDeleted(id);
     persist();
     renderFolders();
     toast(moved.length ? "Dossier supprimé · notes déplacées vers « Notes »" : "Dossier supprimé");
@@ -664,6 +678,7 @@
 
   function deleteNote(id) {
     state.notes = state.notes.filter((n) => n.id !== id);
+    markNoteDeleted(id);
     metaCache.clear();
     persist();
     closeOpenRow();
@@ -717,6 +732,7 @@
       toggleSelectionMode();
       return;
     }
+    selected.forEach((id) => markNoteDeleted(id));
     state.notes = state.notes.filter((n) => !selected.has(n.id));
     metaCache.clear();
     const count = selected.size;
@@ -1138,23 +1154,48 @@
   /* -------------------- Fusion d'états (multi-appareils) ----------------- */
   // Réunit notes (la plus récente par id gagne) et dossiers (union par id).
   // Principe « ne jamais perdre » : on conserve la version la plus à jour de chaque note.
+  // Fusionne deux états en respectant les suppressions (tombstones) : une note
+  // supprimée d'un côté ne « revient » pas depuis l'autre, sauf si elle a été
+  // ré-éditée APRÈS sa suppression (dernière action gagne).
+  function mergeTombstones(a, b) {
+    const out = {};
+    [a, b].forEach((map) => {
+      if (map) Object.keys(map).forEach((id) => { out[id] = Math.max(out[id] || 0, map[id] || 0); });
+    });
+    const cutoff = Date.now() - 120 * 86400000; // purge des tombstones > 120 jours
+    Object.keys(out).forEach((id) => { if (out[id] < cutoff) delete out[id]; });
+    return out;
+  }
+
   function mergeStates(a, b) {
     a = a || { folders: [], notes: [] };
     b = b || { folders: [], notes: [] };
-    const folders = [];
+    const delN = mergeTombstones(a.deleted, b.deleted);
+    const delF = mergeTombstones(a.deletedFolders, b.deletedFolders);
+
     const seen = {};
+    const folders = [];
     (a.folders || []).concat(b.folders || []).forEach((f) => {
       if (!f || !f.id || seen[f.id]) return;
       seen[f.id] = 1;
+      if (delF[f.id] && (f.createdAt || 0) <= delF[f.id]) return; // dossier supprimé
       folders.push(f);
     });
+
     const byId = {};
     (a.notes || []).concat(b.notes || []).forEach((n) => {
       if (!n || !n.id) return;
       const ex = byId[n.id];
       if (!ex || (n.updatedAt || 0) >= (ex.updatedAt || 0)) byId[n.id] = n;
     });
-    return { folders: folders, notes: Object.keys(byId).map((k) => byId[k]), theme: a.theme || b.theme || "auto" };
+    const notes = [];
+    Object.keys(byId).forEach((id) => {
+      const n = byId[id];
+      if (delN[id] && (n.updatedAt || 0) <= delN[id]) return; // note supprimée
+      notes.push(n);
+    });
+
+    return { folders: folders, notes: notes, theme: a.theme || b.theme || "auto", deleted: delN, deletedFolders: delF };
   }
 
   function renderAllScreens() {
@@ -1178,7 +1219,7 @@
     }
     function saveConfig() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); } catch (e) {} }
     function isConnected() { return !!cfg.connected && !!cfg.token && !!cfg.gistId; }
-    function exportableState() { return { folders: state.folders, notes: state.notes, theme: state.theme }; }
+    function exportableState() { return { folders: state.folders, notes: state.notes, theme: state.theme, deleted: state.deleted || {}, deletedFolders: state.deletedFolders || {} }; }
 
     async function api(path, opts) {
       opts = opts || {};
