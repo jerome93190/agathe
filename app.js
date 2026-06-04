@@ -7,7 +7,9 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
+  const APP_VERSION = "1.1.0"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
+  const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYSTEM_FOLDER = "f_notes";
 
   /* ----------------------------- Icônes (SVG) ---------------------------- */
@@ -67,25 +69,38 @@
 
   function persist() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      const json = JSON.stringify(state);
+      localStorage.setItem(STORE_KEY, json);
+      // Sauvegarde automatique redondante (anti-perte) : copie + horodatage
+      localStorage.setItem(BACKUP_KEY, json);
+      localStorage.setItem(STORE_KEY + ".savedAt", String(Date.now()));
     } catch (e) {
       toast("Impossible d'enregistrer (stockage plein ?)");
     }
   }
 
-  function load() {
-    let raw = null;
+  function parseState(raw) {
+    if (!raw) return null;
     try {
-      raw = localStorage.getItem(STORE_KEY);
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.folders) && Array.isArray(parsed.notes)) return parsed;
     } catch (e) {}
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.folders) && Array.isArray(parsed.notes)) {
-          state = Object.assign({ theme: "auto" }, parsed);
-          return;
-        }
-      } catch (e) {}
+    return null;
+  }
+
+  function load() {
+    let parsed = null;
+    try {
+      parsed = parseState(localStorage.getItem(STORE_KEY));
+      // Si la donnée principale est absente/corrompue, on récupère la copie de secours
+      if (!parsed) {
+        parsed = parseState(localStorage.getItem(BACKUP_KEY));
+        if (parsed) toast("Notes restaurées depuis la sauvegarde automatique");
+      }
+    } catch (e) {}
+    if (parsed) {
+      state = Object.assign({ theme: "auto" }, parsed);
+      return;
     }
     seed();
   }
@@ -702,7 +717,21 @@
     note.updatedAt = Date.now();
     metaCache.delete(note.id);
     persist();
-    el("#editor-date").textContent = fullDate(note.updatedAt);
+    flashSaved(note);
+  }
+
+  // Indicateur « Enregistré » fugace dans l'en-tête de l'éditeur
+  let savedTimer = null;
+  function flashSaved(note) {
+    const d = el("#editor-date");
+    d.textContent = "✓ Enregistré";
+    d.classList.add("is-saved");
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => {
+      d.classList.remove("is-saved");
+      const n = note || getNote(nav.noteId);
+      if (n) d.textContent = fullDate(n.updatedAt);
+    }, 1300);
   }
 
   function focusEditorEnd() {
@@ -1146,6 +1175,8 @@
   /* ----------------------------- Initialisation -------------------------- */
   function init() {
     paintIcons(document);
+    const vEl = el("#app-version");
+    if (vEl) vEl.textContent = "Version " + APP_VERSION;
     load();
     applyTheme();
     renderFolders();

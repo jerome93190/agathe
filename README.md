@@ -117,6 +117,23 @@ console**.
 
 ---
 
+## 🧾 Versions
+
+Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
+jour à chaque évolution.
+
+- **v1.1.0**
+  - Numéro de version affiché dans l'application (et mis à jour à chaque MAJ).
+  - **Sauvegarde automatique renforcée** : copie de secours redondante en local et
+    **restauration automatique** si la donnée principale est perdue/corrompue.
+  - Indicateur **« ✓ Enregistré »** dans l'éditeur.
+  - Déploiement GitHub Pages automatique (auto-activation de Pages) et fusion sur `main`.
+- **v1.0.0**
+  - Première version : app Notes façon iOS (dossiers, éditeur enrichi, listes à
+    cocher, recherche, épinglage, balayage, mode clair/sombre, export/import, PWA).
+
+---
+
 ## 🛣️ Évolutions possibles
 
 - Synchronisation des notes vers un dépôt GitHub (via *Personal Access Token* / OAuth).
