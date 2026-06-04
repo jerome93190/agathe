@@ -1,0 +1,14 @@
+# Dépendances (le projet n'en a aucune en production)
+node_modules/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+
+# Sauvegardes exportées localement
+notes-sauvegarde-*.json
