@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.2.0"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.3.0"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -82,7 +82,7 @@
       toast("Impossible d'enregistrer (stockage plein ?)");
     }
     // Synchronisation cloud (GitHub) automatique
-    if (!skipSync && gh.isConnected()) gh.scheduleSyncPush();
+    if (!skipSync && sync.isConnected()) sync.scheduleSyncPush();
   }
 
   function parseState(raw) {
@@ -117,11 +117,11 @@
       theme: "auto",
       folders: [
         { id: SYSTEM_FOLDER, name: "Notes", system: true, createdAt: now },
-        { id: uid("f"), name: "Idées", createdAt: now },
+        { id: "f_idees", name: "Idées", createdAt: now },
       ],
       notes: [
         {
-          id: uid("n"),
+          id: "n_welcome",
           folderId: SYSTEM_FOLDER,
           body:
             "<h1>Bienvenue 👋</h1>" +
@@ -139,7 +139,7 @@
           updatedAt: now,
         },
         {
-          id: uid("n"),
+          id: "n_courses",
           folderId: SYSTEM_FOLDER,
           body: "<h1>Liste de courses</h1><div>Glissez une note vers la gauche pour l'épingler ou la supprimer.</div>",
           pinned: false,
@@ -1022,246 +1022,211 @@
     if (nav.depth === 2 && document.activeElement !== editor && getNote(nav.noteId)) renderEditor();
   }
 
-  /* ----------------- Synchronisation GitHub (cloud) ---------------------- */
-  const gh = (function () {
-    let cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
+  /* --------- Synchronisation par CODE (chiffrée de bout en bout) ---------- */
+  // Aucun jeton, aucun compte. Les notes sont chiffrées sur l'appareil (AES-GCM)
+  // puis relayées via un stockage JSON sans clé. La clé de déchiffrement vit
+  // uniquement dans le CODE (jamais envoyée au relais) -> personne d'autre ne lit.
+  const sync = (function () {
+    const RELAY = "https://jsonblob.com/api/jsonBlob"; // relais JSON public, sans clé, CORS
+    let cfg = { blobId: "", keyB64: "", lastSyncedAt: 0, connected: false };
+    let cryptoKey = null;
     let pushTimer = null;
     let busy = false;
-    let pendingPush = false;
+    let pending = false;
 
     function loadConfig() {
-      try {
-        const raw = localStorage.getItem(SYNC_KEY);
-        if (raw) cfg = Object.assign(cfg, JSON.parse(raw));
-      } catch (e) {}
+      try { const raw = localStorage.getItem(SYNC_KEY); if (raw) cfg = Object.assign(cfg, JSON.parse(raw)); } catch (e) {}
     }
-    function saveConfig() {
-      try { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); } catch (e) {}
+    function saveConfig() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); } catch (e) {} }
+    function isConnected() { return !!cfg.connected && !!cfg.blobId && !!cryptoKey; }
+    function exportableState() { return { folders: state.folders, notes: state.notes, theme: state.theme }; }
+
+    /* ---- base64 (octets) ---- */
+    function b64FromBytes(b) { let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+    function bytesFromB64(s) { s = atob(s); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+    function b64url(b) { return b64FromBytes(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+    function unb64url(s) { s = (s || "").replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return bytesFromB64(s); }
+
+    /* ---- chiffrement AES-GCM 256 ---- */
+    function genKey() { return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]); }
+    async function exportKey(k) { return b64url(new Uint8Array(await crypto.subtle.exportKey("raw", k))); }
+    function importKey(b) { return crypto.subtle.importKey("raw", unb64url(b), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]); }
+    async function encryptState(obj) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = new TextEncoder().encode(JSON.stringify(obj));
+      const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, cryptoKey, data);
+      return { app: "notes", v: 1, iv: b64FromBytes(iv), ct: b64FromBytes(new Uint8Array(ct)) };
     }
-    function isConnected() { return !!cfg.connected && !!cfg.token; }
-
-    // base64 compatible UTF-8 (caractères accentués, emojis…)
-    function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
-    function b64decode(b64) { return decodeURIComponent(escape(atob((b64 || "").replace(/\s/g, "")))); }
-
-    async function api(path, opts) {
-      opts = opts || {};
-      return fetch("https://api.github.com" + path, {
-        method: opts.method || "GET",
-        headers: {
-          Authorization: "Bearer " + cfg.token,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
-      });
+    async function decryptEnv(env) {
+      if (!env || !env.iv || !env.ct) return null;
+      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytesFromB64(env.iv) }, cryptoKey, bytesFromB64(env.ct));
+      return JSON.parse(new TextDecoder().decode(pt));
     }
 
-    async function getUser() {
-      const res = await api("/user");
-      if (res.status === 401) throw new Error("Jeton invalide ou expiré");
-      if (!res.ok) throw new Error("GitHub a répondu " + res.status);
+    /* ---- relais (stockage JSON sans clé) ---- */
+    async function relayCreate(env) {
+      const res = await fetch(RELAY, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(env) });
+      if (!res.ok) throw new Error("Relais indisponible (" + res.status + ")");
+      let id = (res.headers.get("Location") || "").split("/").pop();
+      if (!id) { try { const j = await res.clone().json(); id = j.id || (j.uri || "").split("/").pop(); } catch (e) {} }
+      if (!id) throw new Error("Activation impossible (relais)");
+      return id;
+    }
+    async function relayRead(id) {
+      const res = await fetch(RELAY + "/" + id, { headers: { Accept: "application/json" } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Lecture impossible (" + res.status + ")");
       return res.json();
     }
-
-    async function ensureRepo() {
-      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo);
-      if (res.ok) {
-        const r = await res.json();
-        cfg.branch = r.default_branch || "main";
-        return;
-      }
-      if (res.status === 404) {
-        const create = await api("/user/repos", {
-          method: "POST",
-          body: { name: cfg.repo, private: true, auto_init: true, description: "Sauvegarde de mes notes" },
-        });
-        if (!create.ok) throw new Error("Création du dépôt impossible (jeton avec le scope « repo » ?)");
-        const r = await create.json();
-        cfg.branch = r.default_branch || "main";
-        await new Promise((r2) => setTimeout(r2, 900)); // laisse le dépôt s'initialiser
-        return;
-      }
-      throw new Error("Accès au dépôt impossible (" + res.status + ")");
+    async function relayWrite(id, env) {
+      const res = await fetch(RELAY + "/" + id, { method: "PUT", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(env) });
+      if (!res.ok) throw new Error("Envoi impossible (" + res.status + ")");
     }
 
-    async function getRemote() {
-      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path + "?ref=" + cfg.branch);
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error("Lecture distante impossible (" + res.status + ")");
-      const data = await res.json();
-      let json = null;
-      try { json = JSON.parse(b64decode(data.content)); } catch (e) {}
-      return { json: json, sha: data.sha };
-    }
+    /* ---- code de synchro : blobId + "." + cléBase64url ---- */
+    function makeCode() { return cfg.blobId + "." + cfg.keyB64; }
+    function parseCode(code) { const i = (code || "").indexOf("."); if (i < 1) return null; return { blobId: code.slice(0, i), keyB64: code.slice(i + 1) }; }
 
-    function putRemote(contentStr, sha) {
-      const body = { message: "Sauvegarde des notes — " + new Date().toLocaleString("fr-FR"), content: b64encode(contentStr), branch: cfg.branch };
-      if (sha) body.sha = sha;
-      return api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path, { method: "PUT", body: body });
-    }
-
-    function mergeRemoteIntoLocal(remoteJson) {
-      if (!remoteJson) return;
-      state = mergeStates(state, remoteJson);
-      persist(true); // écrit en local sans relancer une synchro
+    function applyRemote(remote) {
+      if (!remote) return;
+      state = mergeStates(state, remote);
+      persist(true); // local uniquement (évite une boucle de synchro)
       renderAllScreens();
     }
 
+    /* ---- opérations ---- */
     async function pull() {
       if (!isConnected()) return;
       setBadge("sync");
       try {
-        const remote = await getRemote();
-        if (remote) { mergeRemoteIntoLocal(remote.json); cfg.sha = remote.sha; }
-        cfg.lastSyncedAt = Date.now();
-        saveConfig();
+        const env = await relayRead(cfg.blobId);
+        if (env) applyRemote(await decryptEnv(env));
+        cfg.lastSyncedAt = Date.now(); saveConfig();
         setBadge("ok");
       } catch (e) { setBadge("error", e.message); }
     }
 
     async function push() {
       if (!isConnected()) return;
-      if (busy) { pendingPush = true; return; }
+      if (busy) { pending = true; return; }
       busy = true; setBadge("sync");
       try {
-        let body = JSON.stringify(state, null, 2);
-        let sha = cfg.sha;
-        let done = false;
-        for (let attempt = 0; attempt < 3 && !done; attempt++) {
-          const res = await putRemote(body, sha);
-          if (res.ok) {
-            const j = await res.json();
-            cfg.sha = j.content.sha;
-            cfg.lastSyncedAt = Date.now();
-            saveConfig();
-            done = true;
-          } else if (res.status === 409 || res.status === 422) {
-            const remote = await getRemote(); // conflit : on fusionne le distant puis on réessaie
-            if (remote) { mergeRemoteIntoLocal(remote.json); sha = remote.sha; }
-            else sha = null;
-            body = JSON.stringify(state, null, 2);
-          } else if (res.status === 401) {
-            throw new Error("Jeton invalide");
-          } else {
-            throw new Error("Envoi impossible (" + res.status + ")");
-          }
-        }
-        if (!done) throw new Error("Conflit de synchronisation persistant");
+        // on récupère et fusionne d'abord le distant pour ne pas écraser l'autre appareil
+        const env = await relayRead(cfg.blobId);
+        if (env) applyRemote(await decryptEnv(env));
+        await relayWrite(cfg.blobId, await encryptState(exportableState()));
+        cfg.lastSyncedAt = Date.now(); saveConfig();
         setBadge("ok");
       } catch (e) { setBadge("error", e.message); }
-      finally {
-        busy = false;
-        if (pendingPush) { pendingPush = false; scheduleSyncPush(); }
-      }
+      finally { busy = false; if (pending) { pending = false; scheduleSyncPush(); } }
     }
 
-    function scheduleSyncPush() {
-      clearTimeout(pushTimer);
-      pushTimer = setTimeout(push, 1500);
-    }
+    function scheduleSyncPush() { clearTimeout(pushTimer); pushTimer = setTimeout(push, 1500); }
 
-    async function connect(token, repo) {
-      token = (token || "").trim();
-      repo = (repo || "").trim().replace(/\s+/g, "-");
-      if (!token) { toast("Colle d'abord ton jeton GitHub"); return; }
-      if (!repo) { toast("Indique un nom de dépôt"); return; }
-      cfg.token = token; cfg.repo = repo; cfg.path = "notes.json"; cfg.branch = "main";
-      setStatus("sync", "Connexion…");
-      const btn = el("#gh-connect");
-      if (btn) btn.disabled = true;
+    async function activate() {
+      const btn = el("#sync-activate"); if (btn) btn.disabled = true;
+      setStatus("sync", "Activation…");
       try {
-        const me = await getUser();
-        cfg.owner = me.login;
-        await ensureRepo();
-        const remote = await getRemote();
-        if (remote) { mergeRemoteIntoLocal(remote.json); cfg.sha = remote.sha; }
-        cfg.connected = true;
+        cryptoKey = await genKey();
+        cfg.keyB64 = await exportKey(cryptoKey);
+        cfg.blobId = await relayCreate(await encryptState(exportableState()));
+        cfg.connected = true; cfg.lastSyncedAt = Date.now();
         saveConfig();
-        await push(); // envoie l'état fusionné
-        updateUI();
-        const tokenInput = el("#gh-token");
-        if (tokenInput) tokenInput.value = "";
-        toast("Sauvegarde GitHub activée ✓");
+        showMyCode();
+        updateUI(); setBadge("ok");
+        toast("Synchro activée ✓");
       } catch (e) {
-        cfg.connected = false; saveConfig();
-        setStatus("error", e.message || "Échec de la connexion");
-        toast(e.message || "Échec de la connexion");
-      } finally {
-        if (btn) btn.disabled = false;
-        updateUI();
-      }
+        cfg.connected = false; cryptoKey = null; saveConfig();
+        setStatus("error", e.message || "Échec");
+        toast(e.message || "Activation impossible");
+      } finally { if (btn) btn.disabled = false; updateUI(); }
+    }
+
+    async function join(code) {
+      const p = parseCode((code || "").trim());
+      if (!p) { toast("Code invalide"); return; }
+      const btn = el("#sync-join"); if (btn) btn.disabled = true;
+      setStatus("sync", "Connexion…");
+      try {
+        cryptoKey = await importKey(p.keyB64);
+        const env = await relayRead(p.blobId);
+        if (!env) throw new Error("Aucune donnée pour ce code");
+        const remote = await decryptEnv(env); // lève une erreur si la clé est mauvaise
+        cfg.blobId = p.blobId; cfg.keyB64 = p.keyB64; cfg.connected = true; cfg.lastSyncedAt = Date.now();
+        applyRemote(remote);
+        saveConfig();
+        await push();
+        updateUI(); setBadge("ok");
+        const inp = el("#sync-code-input"); if (inp) inp.value = "";
+        toast("Appareil synchronisé ✓");
+      } catch (e) {
+        cfg.connected = false; cryptoKey = null;
+        setStatus("error", "Code ou données invalides");
+        toast("Code invalide ou illisible");
+      } finally { if (btn) btn.disabled = false; updateUI(); }
     }
 
     function disconnect() {
-      cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
-      saveConfig();
-      updateUI();
-      toast("Synchronisation GitHub désactivée");
+      cfg = { blobId: "", keyB64: "", lastSyncedAt: 0, connected: false };
+      cryptoKey = null; saveConfig(); updateUI();
+      const box = el("#sync-code-box"); if (box) box.hidden = true;
+      toast("Synchro désactivée sur cet appareil");
     }
 
-    async function syncNow() {
-      if (!isConnected()) return;
-      await pull();
-      await push();
-    }
+    async function syncNow() { if (!isConnected()) return; await pull(); await push(); }
 
-    /* ----- Interface : statut + badge ----- */
-    function iconFor(stateName) {
-      return stateName === "sync" ? "refresh" : stateName === "error" ? "alert" : "cloud";
-    }
-    function setStatus(stateName, text) {
-      const box = el("#gh-status");
-      if (!box) return;
-      box.dataset.state = stateName;
-      const ic = box.querySelector(".gh-status-icon");
-      ic.dataset.icon = iconFor(stateName);
-      ic.dataset.painted = "0";
-      paintIcons(box);
+    /* ---- interface : statut + badge + code ---- */
+    function iconFor(s) { return s === "sync" ? "refresh" : s === "error" ? "alert" : "cloud"; }
+    function setStatus(s, text) {
+      const box = el("#gh-status"); if (!box) return;
+      box.dataset.state = s;
+      const ic = box.querySelector(".gh-status-icon"); ic.dataset.icon = iconFor(s); ic.dataset.painted = "0"; paintIcons(box);
       el("#gh-status-text").textContent = text;
     }
-    function setBadge(stateName, text) {
+    function setBadge(s, text) {
       const badge = el("#sync-badge");
       if (badge) {
-        if (stateName === "off") {
-          badge.hidden = true;
-        } else {
-          badge.hidden = false;
-          badge.dataset.state = stateName;
-          const ic = badge.querySelector(".sync-badge-icon");
-          ic.dataset.icon = iconFor(stateName);
-          ic.dataset.painted = "0";
-          paintIcons(badge);
-          el("#sync-badge-text").textContent =
-            stateName === "sync" ? "Sync…" : stateName === "error" ? "Erreur" : "Synchronisé";
+        if (s === "off") badge.hidden = true;
+        else {
+          badge.hidden = false; badge.dataset.state = s;
+          const ic = badge.querySelector(".sync-badge-icon"); ic.dataset.icon = iconFor(s); ic.dataset.painted = "0"; paintIcons(badge);
+          el("#sync-badge-text").textContent = s === "sync" ? "Sync…" : s === "error" ? "Erreur" : "Synchronisé";
         }
       }
-      if (stateName === "ok" && isConnected()) {
-        const t = cfg.lastSyncedAt ? " · " + new Date(cfg.lastSyncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
-        setStatus("ok", "Connecté à " + cfg.owner + "/" + cfg.repo + t);
-      } else if (stateName === "sync") {
-        setStatus("sync", "Synchronisation…");
-      } else if (stateName === "error") {
-        setStatus("error", text || "Erreur de synchronisation");
-      }
+      if (s === "ok" && isConnected()) {
+        const t = cfg.lastSyncedAt ? new Date(cfg.lastSyncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+        setStatus("ok", "Synchro active" + (t ? " · " + t : ""));
+      } else if (s === "sync") setStatus("sync", "Synchronisation…");
+      else if (s === "error") setStatus("error", text || "Erreur de synchronisation");
+    }
+    function showMyCode() {
+      const box = el("#sync-code-box"), val = el("#sync-code-value");
+      if (val) val.textContent = makeCode();
+      if (box) box.hidden = false;
     }
     function updateUI() {
       const connected = isConnected();
-      const form = el("#gh-form"), actions = el("#gh-actions"), label = el("#settings-github-label");
-      if (form) form.hidden = connected;
+      const setup = el("#sync-setup"), actions = el("#gh-actions"), label = el("#settings-github-label");
+      if (setup) setup.hidden = connected;
       if (actions) actions.hidden = !connected;
-      if (label) label.textContent = connected ? "Sauvegarde GitHub : activée" : "Sauvegarde GitHub (cloud)";
-      if (connected) setBadge("ok");
-      else { setBadge("off"); setStatus("off", "Non connecté"); }
+      if (!connected) { const box = el("#sync-code-box"); if (box) box.hidden = true; }
+      if (label) label.textContent = connected ? "Synchro entre appareils : active" : "Synchro entre appareils";
+      if (connected) setBadge("ok"); else { setBadge("off"); setStatus("off", "Non synchronisé"); }
+    }
+    function copyCode() {
+      const code = makeCode();
+      if (navigator.clipboard) navigator.clipboard.writeText(code).then(function () { toast("Code copié"); }, function () { toast("Copie impossible"); });
+      else toast("Copie non disponible");
     }
 
     function start() {
       loadConfig();
-      updateUI();
-      if (isConnected()) pull(); // récupère les changements des autres appareils
+      if (cfg.connected && cfg.keyB64 && cfg.blobId) {
+        importKey(cfg.keyB64).then(function (k) { cryptoKey = k; updateUI(); pull(); }).catch(function () { updateUI(); });
+      } else updateUI();
     }
 
-    return { isConnected, scheduleSyncPush, push, pull, connect, disconnect, syncNow, updateUI, start };
+    return { isConnected, scheduleSyncPush, push, pull, syncNow, activate, join, disconnect, showMyCode, copyCode, updateUI, start };
   })();
 
   /* ----------------------------- Écouteurs ------------------------------- */
@@ -1384,17 +1349,20 @@
           cycleTheme();
         } else if (a === "github") {
           showSheet("github-sheet");
-          gh.updateUI();
+          sync.updateUI();
         } else closeSheet();
       });
     });
 
     // Feuille « Sauvegarde GitHub »
-    el("#gh-connect").addEventListener("click", () => gh.connect(el("#gh-token").value, el("#gh-repo").value));
-    el("#gh-sync-now").addEventListener("click", () => gh.syncNow());
-    el("#gh-disconnect").addEventListener("click", () => gh.disconnect());
+    el("#sync-activate").addEventListener("click", () => sync.activate());
+    el("#sync-join").addEventListener("click", () => sync.join(el("#sync-code-input").value));
+    el("#sync-copy").addEventListener("click", () => sync.copyCode());
+    el("#sync-show-code").addEventListener("click", () => sync.showMyCode());
+    el("#gh-sync-now").addEventListener("click", () => sync.syncNow());
+    el("#gh-disconnect").addEventListener("click", () => sync.disconnect());
     el("#github-sheet").querySelector('[data-action="cancel-github"]').addEventListener("click", closeSheet);
-    el("#sync-badge").addEventListener("click", () => { showSheet("github-sheet"); gh.updateUI(); });
+    el("#sync-badge").addEventListener("click", () => { showSheet("github-sheet"); sync.updateUI(); });
     el("#import-file").addEventListener("change", (e) => {
       const f = e.target.files && e.target.files[0];
       if (f) importNotes(f);
@@ -1422,7 +1390,7 @@
     window.addEventListener("pagehide", saveCurrentNote);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") saveCurrentNote();
-      else if (document.visibilityState === "visible" && gh.isConnected() && document.activeElement !== editor) gh.pull();
+      else if (document.visibilityState === "visible" && sync.isConnected() && document.activeElement !== editor) sync.pull();
     });
   }
 
@@ -1471,7 +1439,7 @@
     setDepth(0);
     bindEvents();
     registerSW();
-    gh.start(); // démarre la synchro GitHub si déjà configurée
+    sync.start(); // démarre la synchro GitHub si déjà configurée
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

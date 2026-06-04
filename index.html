@@ -214,7 +214,7 @@
     <div class="sheet sheet--menu" id="settings-menu" hidden aria-label="Réglages">
       <div class="sheet-grabber"></div>
       <button class="menu-item" data-action="github" type="button">
-        <span id="settings-github-label">Sauvegarde GitHub (cloud)</span><span class="icon-slot" data-icon="cloud"></span>
+        <span id="settings-github-label">Synchro entre appareils</span><span class="icon-slot" data-icon="cloud"></span>
       </button>
       <button class="menu-item" data-action="export" type="button">
         <span>Exporter mes notes (sauvegarde)</span><span class="icon-slot" data-icon="download"></span>
@@ -228,50 +228,47 @@
       <button class="menu-item menu-item--cancel" data-action="cancel" type="button">Annuler</button>
     </div>
 
-    <!-- ===================== SAUVEGARDE GITHUB (cloud) ===================== -->
-    <div class="sheet sheet--github" id="github-sheet" hidden aria-label="Sauvegarde GitHub">
+    <!-- ===================== SYNCHRO ENTRE APPAREILS (code) ===================== -->
+    <div class="sheet sheet--github" id="github-sheet" hidden aria-label="Synchro entre appareils">
       <div class="sheet-grabber"></div>
       <h2 class="sheet-title">
-        <span class="icon-slot sheet-title-icon" data-icon="cloud"></span> Sauvegarde GitHub
+        <span class="icon-slot sheet-title-icon" data-icon="cloud"></span> Synchro entre appareils
       </h2>
       <p class="sheet-desc">
-        Tes notes sont enregistrées automatiquement dans un dépôt GitHub <b>privé</b>
-        (ton « cloud »), et synchronisées entre tes appareils.
+        Tes notes circulent automatiquement dans les <b>2 sens</b> entre tes appareils,
+        <b>chiffrées</b> (personne d'autre ne peut les lire). Aucun compte, aucun jeton.
       </p>
 
       <div class="gh-status" id="gh-status" data-state="off">
         <span class="icon-slot gh-status-icon" data-icon="cloud"></span>
-        <span id="gh-status-text">Non connecté</span>
+        <span id="gh-status-text">Non synchronisé</span>
       </div>
 
-      <!-- Formulaire de connexion -->
-      <div class="gh-form" id="gh-form">
+      <!-- Mise en place (appareil non synchronisé) -->
+      <div id="sync-setup">
+        <button class="gh-btn gh-btn--primary" id="sync-activate" type="button">Activer la synchro sur cet appareil</button>
+        <div class="sync-or">— ou —</div>
         <label class="gh-field">
-          <span>Jeton d'accès GitHub</span>
-          <input type="password" id="gh-token" placeholder="github_pat_… ou ghp_…"
+          <span>J'ai déjà un code (depuis un autre appareil)</span>
+          <input type="text" id="sync-code-input" placeholder="colle ton code ici"
             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
         </label>
-        <label class="gh-field">
-          <span>Nom du dépôt (créé en privé s'il n'existe pas)</span>
-          <input type="text" id="gh-repo" value="mes-notes"
-            autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        </label>
-        <button class="gh-btn gh-btn--primary" id="gh-connect" type="button">Connecter et synchroniser</button>
-        <details class="gh-help">
-          <summary>Comment obtenir un jeton ? (1 minute)</summary>
-          <ol>
-            <li>Sur GitHub : <b>Settings → Developer settings → Personal access tokens → Tokens (classic)</b>.</li>
-            <li>« Generate new token (classic) », coche la case <b>repo</b>, puis génère-le.</li>
-            <li>Copie le jeton (il commence par <code>ghp_</code>) et colle-le ci-dessus.</li>
-          </ol>
-          <p class="gh-help-note">🔒 Le jeton reste uniquement sur cet appareil. Le dépôt est créé en <b>privé</b> (tes mots de passe ne sont jamais publics).</p>
-        </details>
+        <button class="gh-btn" id="sync-join" type="button">Rejoindre avec ce code</button>
       </div>
 
-      <!-- Actions une fois connecté -->
+      <!-- Le code à recopier sur les autres appareils -->
+      <div id="sync-code-box" hidden>
+        <p class="sync-code-label">📋 Ton code de synchro — colle-le sur tes autres appareils :</p>
+        <div class="sync-code" id="sync-code-value"></div>
+        <button class="gh-btn gh-btn--primary" id="sync-copy" type="button">Copier le code</button>
+        <p class="gh-help-note">🔒 Garde ce code secret : il permet de lire et déchiffrer tes notes. Ne le partage qu'avec tes propres appareils.</p>
+      </div>
+
+      <!-- Actions une fois synchronisé -->
       <div class="gh-actions" id="gh-actions" hidden>
+        <button class="gh-btn" id="sync-show-code" type="button">Afficher mon code</button>
         <button class="gh-btn" id="gh-sync-now" type="button">Synchroniser maintenant</button>
-        <button class="gh-btn gh-btn--danger" id="gh-disconnect" type="button">Déconnecter</button>
+        <button class="gh-btn gh-btn--danger" id="gh-disconnect" type="button">Désactiver sur cet appareil</button>
       </div>
 
       <button class="menu-item menu-item--cancel" data-action="cancel-github" type="button">Fermer</button>

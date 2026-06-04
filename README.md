@@ -76,27 +76,32 @@ l'écran d'accueil.
 
 1. **Locale automatique** : chaque modification est enregistrée sur l'appareil,
    avec une **copie de secours** et une **restauration automatique** en cas de souci.
-2. **Cloud GitHub (automatique)** : tes notes sont enregistrées dans un **dépôt
-   GitHub privé** et **synchronisées entre tes appareils**. Active-la dans
-   **⚙︎ → Sauvegarde GitHub** (voir ci-dessous).
+2. **Synchro entre appareils (code, sans compte ni jeton)** : tes notes circulent
+   automatiquement **dans les 2 sens**, **chiffrées de bout en bout**. Active-la
+   dans **⚙︎ → Synchro entre appareils** (voir ci-dessous).
 3. **Export manuel** : à tout moment, **⚙︎ → Exporter mes notes** produit un
    fichier `.json` à conserver ou réimporter ailleurs.
 
-### ☁️ Activer la sauvegarde cloud GitHub
+### ☁️ Activer la synchro entre appareils (Code de synchro)
 
-1. Crée un **jeton d'accès** : GitHub → *Settings → Developer settings → Personal
-   access tokens → Tokens (classic)* → coche **repo** → génère-le (`ghp_…`).
-2. Dans l'app : **⚙︎ → Sauvegarde GitHub**, colle le jeton, choisis un nom de
-   dépôt (ex. `mes-notes`) puis **Connecter et synchroniser**.
-3. L'app **crée le dépôt en privé** s'il n'existe pas, y écrit `notes.json` et
-   **se synchronise automatiquement** ensuite. Le badge **« ☁ Synchronisé »**
-   confirme l'état.
+1. Sur le **1er appareil** : **⚙︎ → Synchro entre appareils → Activer la synchro**.
+   L'app affiche un **code** (à copier).
+2. Sur les **autres appareils** : **⚙︎ → Synchro entre appareils**, colle le code
+   dans *« J'ai déjà un code »* puis **Rejoindre**.
+3. C'est tout : ensuite, **tout se synchronise automatiquement dans les 2 sens**.
+   Le badge **« ☁ Synchronisé »** confirme l'état.
 
-> 🔒 **Sécurité** : le jeton est stocké **uniquement sur ton appareil** (jamais
-> dans le code public). Le dépôt de sauvegarde est **privé** : comme tes notes
-> peuvent contenir des mots de passe, ne le rends jamais public.
-> La synchronisation fusionne intelligemment (la note la plus récente gagne),
-> ce qui évite de perdre des données entre appareils.
+> 🔒 **Sécurité (chiffrement de bout en bout)** : tes notes sont **chiffrées sur
+> l'appareil** (AES-GCM 256) avant d'être relayées. La **clé de déchiffrement est
+> dans le code** et **n'est jamais envoyée** au service de relais — personne d'autre
+> (pas même le relais) ne peut lire tes notes. **Garde donc ton code secret** et ne
+> le partage qu'avec tes propres appareils.
+>
+> ⚙️ *Fonctionnement* : les notes chiffrées transitent par un petit service de
+> stockage JSON public et **sans clé** (relais). La fusion est « intelligente » (la
+> note la plus récente gagne) pour ne rien perdre entre appareils. Comme ce relais
+> est un service tiers gratuit, **garde aussi une copie via l'export** : la copie
+> locale + l'export `.json` restent tes sauvegardes garanties.
 
 ---
 
@@ -136,11 +141,17 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.3.0**
+  - **Synchro entre appareils par « Code de synchro »**, **sans jeton ni compte** :
+    un code à activer sur un appareil et à coller sur les autres. Synchro
+    automatique **dans les 2 sens**.
+  - **Chiffrement de bout en bout** (AES-GCM 256) : les notes sont chiffrées sur
+    l'appareil ; la clé vit dans le code et n'est jamais envoyée au relais.
+  - Remplace la synchro « jeton GitHub » de la v1.2.0 (plus de jeton à gérer).
+  - Identifiants des notes d'exemple fixés (évite les doublons à la fusion).
 - **v1.2.0**
-  - **Sauvegarde « cloud » sur GitHub** : tes notes sont enregistrées
-    automatiquement dans un **dépôt GitHub privé** et **synchronisées entre
-    appareils** (fusion intelligente : la version la plus récente de chaque note
-    gagne, rien n'est perdu).
+  - **Sauvegarde « cloud » sur GitHub** (remplacée en v1.3.0) : dépôt GitHub privé
+    via un jeton d'accès, synchronisée entre appareils (fusion intelligente).
   - Connexion en un écran (⚙︎ → *Sauvegarde GitHub*) : jeton + nom du dépôt
     (créé en privé automatiquement). Le **jeton reste sur l'appareil**.
   - Badge **« ☁ Synchronisé »** en haut, envoi auto à chaque modification,
