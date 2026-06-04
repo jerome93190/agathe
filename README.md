@@ -76,32 +76,34 @@ l'écran d'accueil.
 
 1. **Locale automatique** : chaque modification est enregistrée sur l'appareil,
    avec une **copie de secours** et une **restauration automatique** en cas de souci.
-2. **Synchro entre appareils (code, sans compte ni jeton)** : tes notes circulent
-   automatiquement **dans les 2 sens**, **chiffrées de bout en bout**. Active-la
+2. **Synchro entre appareils (via GitHub, fiable)** : tes notes sont synchronisées
+   automatiquement **dans les 2 sens** via un **dépôt GitHub privé**. Active-la
    dans **⚙︎ → Synchro entre appareils** (voir ci-dessous).
 3. **Export manuel** : à tout moment, **⚙︎ → Exporter mes notes** produit un
    fichier `.json` à conserver ou réimporter ailleurs.
 
-### ☁️ Activer la synchro entre appareils (Code de synchro)
+### ☁️ Activer la synchro entre appareils (via GitHub)
 
-1. Sur le **1er appareil** : **⚙︎ → Synchro entre appareils → Activer la synchro**.
-   L'app affiche un **code** (à copier).
-2. Sur les **autres appareils** : **⚙︎ → Synchro entre appareils**, colle le code
-   dans *« J'ai déjà un code »* puis **Rejoindre**.
-3. C'est tout : ensuite, **tout se synchronise automatiquement dans les 2 sens**.
-   Le badge **« ☁ Synchronisé »** confirme l'état.
+1. Crée un **code GitHub** (jeton) : GitHub → *Settings → Developer settings →
+   Personal access tokens → Tokens (classic)* → coche **repo** → génère-le (`ghp_…`).
+2. Sur le **1er appareil** : **⚙︎ → Synchro entre appareils**, colle le code GitHub
+   puis **Activer la synchro**. L'app crée un **dépôt privé** et affiche un
+   **code de synchro** (à copier).
+3. Sur les **autres appareils** : **⚙︎ → Synchro entre appareils**, colle le
+   **code de synchro** dans *« J'ai déjà un code »* puis **Rejoindre** (pas besoin de
+   recréer un jeton).
+4. Ensuite, **tout se synchronise automatiquement dans les 2 sens**. Le badge
+   **« ☁ Synchronisé »** confirme l'état.
 
-> 🔒 **Sécurité (chiffrement de bout en bout)** : tes notes sont **chiffrées sur
-> l'appareil** (AES-GCM 256) avant d'être relayées. La **clé de déchiffrement est
-> dans le code** et **n'est jamais envoyée** au service de relais — personne d'autre
-> (pas même le relais) ne peut lire tes notes. **Garde donc ton code secret** et ne
-> le partage qu'avec tes propres appareils.
+> 🔒 **Sécurité** : le code GitHub reste **uniquement sur tes appareils** (jamais
+> dans le dépôt public de l'app). Le dépôt de sauvegarde est **privé** : comme tes
+> notes peuvent contenir des mots de passe, ne le rends jamais public. La fusion est
+> « intelligente » (la note la plus récente gagne) pour ne rien perdre entre
+> appareils. La copie locale + l'export `.json` restent des sauvegardes garanties.
 >
-> ⚙️ *Fonctionnement* : les notes chiffrées transitent par un petit service de
-> stockage JSON public et **sans clé** (relais). La fusion est « intelligente » (la
-> note la plus récente gagne) pour ne rien perdre entre appareils. Comme ce relais
-> est un service tiers gratuit, **garde aussi une copie via l'export** : la copie
-> locale + l'export `.json` restent tes sauvegardes garanties.
+> ℹ️ *Pourquoi GitHub ?* C'est la méthode **fiable** : l'API GitHub fonctionne
+> depuis n'importe quel navigateur. Les relais « sans compte » testés se sont
+> révélés bloqués/indisponibles côté navigateur.
 
 ---
 
@@ -141,9 +143,14 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.3.2**
+  - Synchro entre appareils repassée sur **GitHub** (méthode fiable) : les relais
+    « sans compte » se sont révélés bloqués/indisponibles côté navigateur. On garde
+    la même UX « code » (activer → code à coller sur les autres appareils), mais le
+    « code » embarque le jeton GitHub + le dépôt privé.
 - **v1.3.1**
-  - Correctif du relais de synchro : requêtes « simples » (sans préflight CORS)
-    via `kvdb.io`, pour éviter les erreurs réseau côté navigateur.
+  - (Tentative) Relais de synchro sans compte via requêtes simples — abandonné en
+    v1.3.2 car non fiable côté navigateur.
 - **v1.3.0**
   - **Synchro entre appareils par « Code de synchro »**, **sans jeton ni compte** :
     un code à activer sur un appareil et à coller sur les autres. Synchro

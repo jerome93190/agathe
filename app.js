@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.3.1"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.3.2"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -1022,15 +1022,11 @@
     if (nav.depth === 2 && document.activeElement !== editor && getNote(nav.noteId)) renderEditor();
   }
 
-  /* --------- Synchronisation par CODE (chiffrée de bout en bout) ---------- */
-  // Aucun jeton, aucun compte. Les notes sont chiffrées sur l'appareil (AES-GCM)
-  // puis relayées via un stockage JSON sans clé. La clé de déchiffrement vit
-  // uniquement dans le CODE (jamais envoyée au relais) -> personne d'autre ne lit.
+  /* ----------- Synchronisation entre appareils via GitHub (fiable) -------- */
+  // Méthode fiable : un "code" (jeton GitHub + dépôt) à activer sur un appareil
+  // puis à coller sur les autres. Les notes vont dans un dépôt GitHub PRIVÉ.
   const sync = (function () {
-    const RELAY = "https://kvdb.io"; // stockage clé-valeur sans clé ; requêtes simples (sans préflight CORS)
-    const RKEY = "notes";
-    let cfg = { blobId: "", keyB64: "", lastSyncedAt: 0, connected: false };
-    let cryptoKey = null;
+    let cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
     let pushTimer = null;
     let busy = false;
     let pending = false;
@@ -1039,76 +1035,71 @@
       try { const raw = localStorage.getItem(SYNC_KEY); if (raw) cfg = Object.assign(cfg, JSON.parse(raw)); } catch (e) {}
     }
     function saveConfig() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); } catch (e) {} }
-    function isConnected() { return !!cfg.connected && !!cfg.blobId && !!cryptoKey; }
+    function isConnected() { return !!cfg.connected && !!cfg.token && !!cfg.repo; }
     function exportableState() { return { folders: state.folders, notes: state.notes, theme: state.theme }; }
 
-    /* ---- base64 (octets) ---- */
-    function b64FromBytes(b) { let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
-    function bytesFromB64(s) { s = atob(s); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
-    function b64url(b) { return b64FromBytes(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
-    function unb64url(s) { s = (s || "").replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return bytesFromB64(s); }
+    function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+    function b64decode(b64) { return decodeURIComponent(escape(atob((b64 || "").replace(/\s/g, "")))); }
 
-    /* ---- chiffrement AES-GCM 256 ---- */
-    function genKey() { return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]); }
-    async function exportKey(k) { return b64url(new Uint8Array(await crypto.subtle.exportKey("raw", k))); }
-    function importKey(b) { return crypto.subtle.importKey("raw", unb64url(b), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]); }
-    async function encryptState(obj) {
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = new TextEncoder().encode(JSON.stringify(obj));
-      const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, cryptoKey, data);
-      return { app: "notes", v: 1, iv: b64FromBytes(iv), ct: b64FromBytes(new Uint8Array(ct)) };
+    async function api(path, opts) {
+      opts = opts || {};
+      return fetch("https://api.github.com" + path, {
+        method: opts.method || "GET",
+        headers: { Authorization: "Bearer " + cfg.token, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
     }
-    async function decryptEnv(env) {
-      if (!env || !env.iv || !env.ct) return null;
-      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytesFromB64(env.iv) }, cryptoKey, bytesFromB64(env.ct));
-      return JSON.parse(new TextDecoder().decode(pt));
+    async function getUser() {
+      const res = await api("/user");
+      if (res.status === 401) throw new Error("Code/jeton invalide ou expiré");
+      if (!res.ok) throw new Error("GitHub a répondu " + res.status);
+      return res.json();
     }
-
-    /* ---- relais (stockage JSON sans clé) ---- */
-    async function relayCreate(env) {
-      // Crée un "bucket" anonyme (POST simple, sans en-tête → pas de préflight CORS)
-      const res = await fetch(RELAY, { method: "POST" });
-      if (!res.ok) throw new Error("Relais indisponible (" + res.status + ")");
-      const id = (await res.text()).trim();
-      if (!id) throw new Error("Activation impossible (relais)");
-      await relayWrite(id, env);
-      return id;
+    async function ensureRepo() {
+      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo);
+      if (res.ok) { const r = await res.json(); cfg.branch = r.default_branch || "main"; return; }
+      if (res.status === 404) {
+        const create = await api("/user/repos", { method: "POST", body: { name: cfg.repo, private: true, auto_init: true, description: "Sauvegarde de mes notes" } });
+        if (!create.ok) throw new Error("Création du dépôt impossible (le code a-t-il le scope « repo » ?)");
+        const r = await create.json(); cfg.branch = r.default_branch || "main";
+        await new Promise(function (r2) { setTimeout(r2, 900); });
+        return;
+      }
+      throw new Error("Accès au dépôt impossible (" + res.status + ")");
     }
-    async function relayRead(id) {
-      const res = await fetch(RELAY + "/" + id + "/" + RKEY); // GET simple
+    async function getRemote() {
+      const res = await api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path + "?ref=" + cfg.branch);
       if (res.status === 404) return null;
-      if (!res.ok) throw new Error("Lecture impossible (" + res.status + ")");
-      const txt = await res.text();
-      if (!txt) return null;
-      try { return JSON.parse(txt); } catch (e) { return null; }
+      if (!res.ok) throw new Error("Lecture distante impossible (" + res.status + ")");
+      const data = await res.json();
+      let json = null; try { json = JSON.parse(b64decode(data.content)); } catch (e) {}
+      return { json: json, sha: data.sha };
     }
-    async function relayWrite(id, env) {
-      // POST avec un corps texte simple → requête "simple" → pas de préflight CORS
-      const res = await fetch(RELAY + "/" + id + "/" + RKEY, { method: "POST", body: JSON.stringify(env) });
-      if (!res.ok) throw new Error("Envoi impossible (" + res.status + ")");
+    function putRemote(contentStr, sha) {
+      const body = { message: "Notes — " + new Date().toLocaleString("fr-FR"), content: b64encode(contentStr), branch: cfg.branch };
+      if (sha) body.sha = sha;
+      return api("/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + cfg.path, { method: "PUT", body: body });
     }
-
-    /* ---- code de synchro : blobId + "." + cléBase64url ---- */
-    function makeCode() { return cfg.blobId + "." + cfg.keyB64; }
-    function parseCode(code) { const i = (code || "").indexOf("."); if (i < 1) return null; return { blobId: code.slice(0, i), keyB64: code.slice(i + 1) }; }
-
-    function applyRemote(remote) {
-      if (!remote) return;
-      state = mergeStates(state, remote);
-      persist(true); // local uniquement (évite une boucle de synchro)
+    function applyRemote(remoteJson) {
+      if (!remoteJson) return;
+      state = mergeStates(state, remoteJson);
+      persist(true);
       renderAllScreens();
     }
 
-    /* ---- opérations ---- */
+    /* ---- code de synchro = jeton|propriétaire|dépôt ---- */
+    function makeCode() { return cfg.token + "|" + cfg.owner + "|" + cfg.repo; }
+    function parseCode(code) {
+      const p = (code || "").trim().split("|");
+      if (p.length < 3 || !p[0] || !p[1] || !p[2]) return null;
+      return { token: p[0], owner: p[1], repo: p.slice(2).join("|") };
+    }
+
     async function pull() {
       if (!isConnected()) return;
       setBadge("sync");
-      try {
-        const env = await relayRead(cfg.blobId);
-        if (env) applyRemote(await decryptEnv(env));
-        cfg.lastSyncedAt = Date.now(); saveConfig();
-        setBadge("ok");
-      } catch (e) { setBadge("error", e.message); }
+      try { const r = await getRemote(); if (r) { applyRemote(r.json); cfg.sha = r.sha; } cfg.lastSyncedAt = Date.now(); saveConfig(); setBadge("ok"); }
+      catch (e) { setBadge("error", e.message); }
     }
 
     async function push() {
@@ -1116,11 +1107,16 @@
       if (busy) { pending = true; return; }
       busy = true; setBadge("sync");
       try {
-        // on récupère et fusionne d'abord le distant pour ne pas écraser l'autre appareil
-        const env = await relayRead(cfg.blobId);
-        if (env) applyRemote(await decryptEnv(env));
-        await relayWrite(cfg.blobId, await encryptState(exportableState()));
-        cfg.lastSyncedAt = Date.now(); saveConfig();
+        let body = JSON.stringify(exportableState(), null, 2);
+        let sha = cfg.sha; let done = false;
+        for (let attempt = 0; attempt < 3 && !done; attempt++) {
+          const res = await putRemote(body, sha);
+          if (res.ok) { const j = await res.json(); cfg.sha = j.content.sha; cfg.lastSyncedAt = Date.now(); saveConfig(); done = true; }
+          else if (res.status === 409 || res.status === 422) { const r = await getRemote(); if (r) { applyRemote(r.json); sha = r.sha; } else sha = null; body = JSON.stringify(exportableState(), null, 2); }
+          else if (res.status === 401) throw new Error("Code/jeton invalide");
+          else throw new Error("Envoi impossible (" + res.status + ")");
+        }
+        if (!done) throw new Error("Conflit de synchronisation persistant");
         setBadge("ok");
       } catch (e) { setBadge("error", e.message); }
       finally { busy = false; if (pending) { pending = false; scheduleSyncPush(); } }
@@ -1129,51 +1125,50 @@
     function scheduleSyncPush() { clearTimeout(pushTimer); pushTimer = setTimeout(push, 1500); }
 
     async function activate() {
+      const token = (el("#sync-token") ? el("#sync-token").value : "").trim();
+      const repo = ((el("#sync-repo") && el("#sync-repo").value) || "mes-notes").trim().replace(/\s+/g, "-");
+      if (!token) { toast("Colle d'abord ton code GitHub"); return; }
       const btn = el("#sync-activate"); if (btn) btn.disabled = true;
+      cfg.token = token; cfg.repo = repo; cfg.path = "notes.json"; cfg.branch = "main";
       setStatus("sync", "Activation…");
       try {
-        cryptoKey = await genKey();
-        cfg.keyB64 = await exportKey(cryptoKey);
-        cfg.blobId = await relayCreate(await encryptState(exportableState()));
-        cfg.connected = true; cfg.lastSyncedAt = Date.now();
-        saveConfig();
-        showMyCode();
-        updateUI(); setBadge("ok");
+        const me = await getUser(); cfg.owner = me.login;
+        await ensureRepo();
+        const r = await getRemote(); if (r) { applyRemote(r.json); cfg.sha = r.sha; }
+        cfg.connected = true; saveConfig();
+        await push();
+        if (el("#sync-token")) el("#sync-token").value = "";
+        showMyCode(); updateUI(); setBadge("ok");
         toast("Synchro activée ✓");
       } catch (e) {
-        cfg.connected = false; cryptoKey = null; saveConfig();
-        setStatus("error", e.message || "Échec");
-        toast(e.message || "Activation impossible");
+        cfg.connected = false; saveConfig();
+        setStatus("error", e.message || "Échec"); toast(e.message || "Activation impossible");
       } finally { if (btn) btn.disabled = false; updateUI(); }
     }
 
     async function join(code) {
-      const p = parseCode((code || "").trim());
+      const p = parseCode(code);
       if (!p) { toast("Code invalide"); return; }
       const btn = el("#sync-join"); if (btn) btn.disabled = true;
+      cfg.token = p.token; cfg.owner = p.owner; cfg.repo = p.repo; cfg.path = "notes.json"; cfg.branch = "main";
       setStatus("sync", "Connexion…");
       try {
-        cryptoKey = await importKey(p.keyB64);
-        const env = await relayRead(p.blobId);
-        if (!env) throw new Error("Aucune donnée pour ce code");
-        const remote = await decryptEnv(env); // lève une erreur si la clé est mauvaise
-        cfg.blobId = p.blobId; cfg.keyB64 = p.keyB64; cfg.connected = true; cfg.lastSyncedAt = Date.now();
-        applyRemote(remote);
-        saveConfig();
+        await getUser(); // valide le code
+        const r = await getRemote(); if (r) { applyRemote(r.json); cfg.sha = r.sha; }
+        cfg.connected = true; saveConfig();
         await push();
-        updateUI(); setBadge("ok");
         const inp = el("#sync-code-input"); if (inp) inp.value = "";
+        updateUI(); setBadge("ok");
         toast("Appareil synchronisé ✓");
       } catch (e) {
-        cfg.connected = false; cryptoKey = null;
-        setStatus("error", "Code ou données invalides");
-        toast("Code invalide ou illisible");
+        cfg.connected = false; saveConfig();
+        setStatus("error", "Code invalide"); toast(e && e.message ? e.message : "Code invalide");
       } finally { if (btn) btn.disabled = false; updateUI(); }
     }
 
     function disconnect() {
-      cfg = { blobId: "", keyB64: "", lastSyncedAt: 0, connected: false };
-      cryptoKey = null; saveConfig(); updateUI();
+      cfg = { token: "", owner: "", repo: "", path: "notes.json", branch: "main", sha: null, lastSyncedAt: 0, connected: false };
+      saveConfig(); updateUI();
       const box = el("#sync-code-box"); if (box) box.hidden = true;
       toast("Synchro désactivée sur cet appareil");
     }
@@ -1224,12 +1219,7 @@
       else toast("Copie non disponible");
     }
 
-    function start() {
-      loadConfig();
-      if (cfg.connected && cfg.keyB64 && cfg.blobId) {
-        importKey(cfg.keyB64).then(function (k) { cryptoKey = k; updateUI(); pull(); }).catch(function () { updateUI(); });
-      } else updateUI();
-    }
+    function start() { loadConfig(); updateUI(); if (isConnected()) pull(); }
 
     return { isConnected, scheduleSyncPush, push, pull, syncNow, activate, join, disconnect, showMyCode, copyCode, updateUI, start };
   })();

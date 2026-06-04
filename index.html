@@ -235,8 +235,9 @@
         <span class="icon-slot sheet-title-icon" data-icon="cloud"></span> Synchro entre appareils
       </h2>
       <p class="sheet-desc">
-        Tes notes circulent automatiquement dans les <b>2 sens</b> entre tes appareils,
-        <b>chiffrées</b> (personne d'autre ne peut les lire). Aucun compte, aucun jeton.
+        Tes notes sont synchronisées automatiquement dans les <b>2 sens</b> entre tes
+        appareils, via un <b>dépôt GitHub privé</b>. Méthode fiable : un code à coller
+        une fois par appareil.
       </p>
 
       <div class="gh-status" id="gh-status" data-state="off">
@@ -246,11 +247,24 @@
 
       <!-- Mise en place (appareil non synchronisé) -->
       <div id="sync-setup">
+        <label class="gh-field">
+          <span>Ton code GitHub (à coller une seule fois sur cet appareil)</span>
+          <input type="password" id="sync-token" placeholder="ghp_…"
+            autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        </label>
         <button class="gh-btn gh-btn--primary" id="sync-activate" type="button">Activer la synchro sur cet appareil</button>
+        <details class="gh-help">
+          <summary>Comment obtenir ce code GitHub ? (1 min)</summary>
+          <ol>
+            <li>GitHub → <b>Settings → Developer settings → Personal access tokens → Tokens (classic)</b>.</li>
+            <li>« Generate new token (classic) », coche la case <b>repo</b>, puis génère-le.</li>
+            <li>Copie le code (il commence par <code>ghp_</code>) et colle-le ci-dessus.</li>
+          </ol>
+        </details>
         <div class="sync-or">— ou —</div>
         <label class="gh-field">
-          <span>J'ai déjà un code (depuis un autre appareil)</span>
-          <input type="text" id="sync-code-input" placeholder="colle ton code ici"
+          <span>J'ai déjà un code de synchro (depuis un autre appareil)</span>
+          <input type="text" id="sync-code-input" placeholder="colle ton code de synchro ici"
             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
         </label>
         <button class="gh-btn" id="sync-join" type="button">Rejoindre avec ce code</button>
@@ -261,7 +275,7 @@
         <p class="sync-code-label">📋 Ton code de synchro — colle-le sur tes autres appareils :</p>
         <div class="sync-code" id="sync-code-value"></div>
         <button class="gh-btn gh-btn--primary" id="sync-copy" type="button">Copier le code</button>
-        <p class="gh-help-note">🔒 Garde ce code secret : il permet de lire et déchiffrer tes notes. Ne le partage qu'avec tes propres appareils.</p>
+        <p class="gh-help-note">🔒 Garde ce code secret : il donne accès à tes notes (dépôt privé). Ne le partage qu'avec tes propres appareils.</p>
       </div>
 
       <!-- Actions une fois synchronisé -->
