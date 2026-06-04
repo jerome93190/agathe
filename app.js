@@ -7,7 +7,7 @@
   "use strict";
 
   /* ----------------------------- Constantes ----------------------------- */
-  const APP_VERSION = "1.4.3"; // ⬆️ incrémenté à chaque mise à jour
+  const APP_VERSION = "1.4.4"; // ⬆️ incrémenté à chaque mise à jour
   const STORE_KEY = "notes.app.v1";
   const BACKUP_KEY = "notes.app.v1.backup"; // copie de secours automatique
   const SYNC_KEY = "notes.app.sync"; // config de synchro GitHub (jeton, dépôt…)
@@ -1635,8 +1635,24 @@
   /* ----------------------------- Service worker -------------------------- */
   function registerSW() {
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      // Recharge une fois quand une NOUVELLE version prend le contrôle (mise à jour),
+      // mais pas à la toute première visite (évite un rechargement inutile).
+      const hadController = !!navigator.serviceWorker.controller;
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadController || refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("service-worker.js").catch(() => {});
+        navigator.serviceWorker.register("service-worker.js").then((reg) => {
+          if (!reg) return;
+          // Cherche une mise à jour à l'ouverture et au retour sur l'app
+          try { reg.update(); } catch (e) {}
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") { try { reg.update(); } catch (e) {} }
+          });
+        }).catch(() => {});
       });
     }
   }

@@ -145,6 +145,10 @@ console**.
 Le numéro de version est affiché **tout en haut** de l'écran *Dossiers* et est mis à
 jour à chaque évolution.
 
+- **v1.4.4**
+  - **Mise à jour automatique** : l'app détecte une nouvelle version (à l'ouverture
+    et au retour au premier plan) et l'applique seule (un rechargement automatique),
+    pour ne plus rester bloqué sur une version en cache.
 - **v1.4.3**
   - **Suppressions synchronisées** : une note (ou un dossier) supprimée d'un appareil
     ne « revient » plus depuis le cloud — mémorisation des suppressions (tombstones),

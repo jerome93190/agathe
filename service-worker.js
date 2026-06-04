@@ -1,7 +1,7 @@
 /* Service worker — met l'application en cache pour un usage hors-ligne.
    Le numéro de cache suit la version de l'app : à chaque mise à jour,
    l'ancien cache est purgé et la nouvelle version est distribuée. */
-const CACHE = "notes-v1.4.3";
+const CACHE = "notes-v1.4.4";
 const ASSETS = [
   "./",
   "./index.html",
